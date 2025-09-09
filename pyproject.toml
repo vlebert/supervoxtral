@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "supervoxtral"
+version = "0.1.0"
+description = "CLI/TUI audio recorder and transcription client using Mistral Voxtral (chat with audio) and optional Whisper APIs."
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = [
+  "transcription",
+  "audio",
+  "mistral",
+  "voxtral",
+  "whisper",
+  "cli",
+  "tui",
+]
+dependencies = [
+  "typer",
+  "rich",
+  "sounddevice",
+  "soundfile",
+  "python-dotenv",
+  "mistralai",
+]
+
+[project.optional-dependencies]
+openai = ["openai"]
+tui = ["textual"]
+dev = ["black", "ruff", "mypy", "types-python-dotenv", "pytest"]
+
+[project.scripts]
+svx = "svx.cli:app"
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "UP"]
+ignore = []
+target-version = "py310"
+
+[tool.hatch.build.targets.wheel]
+packages = ["svx"]

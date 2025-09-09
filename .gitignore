@@ -1,0 +1,96 @@
+# -----------------------------------------------------------------------------
+# Python
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Distribution / packaging
+.Python
+build/
+dist/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Type checkers / linters
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+
+# -----------------------------------------------------------------------------
+# Project artifacts
+# -----------------------------------------------------------------------------
+# Logs
+logs/
+!logs/.gitkeep
+
+# Audio recordings
+recordings/
+!recordings/.gitkeep
+
+# Transcripts (API responses)
+transcripts/
+!transcripts/.gitkeep
+
+# Local environment variables (use .env.example for template)
+.env
+.env.*
+!.env.example
+
+# OS / Editor cruft
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+.Spotlight-V100
+.Trashes
+
+# IDEs
+.vscode/
+.idea/
+
+# Misc
+*.log
+*.tmp
+*.swp
+*.swo
+.python-version
