@@ -10,6 +10,7 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 
 from svx.core.audio import convert_audio, record_wav, timestamp
+from svx.core.clipboard import copy_to_clipboard
 from svx.core.config import (
     PROMPT_DIR,
     RECORDINGS_DIR,
@@ -76,6 +77,11 @@ def record(
         None,
         "--outfile-prefix",
         help="Custom output file prefix (default uses timestamp).",
+    ),
+    copy: bool = typer.Option(
+        False,
+        "--copy/--no-copy",
+        help="Copy the final transcript text to the system clipboard.",
     ),
     log_level: str = typer.Option(
         "INFO",
@@ -188,6 +194,15 @@ def record(
         console.print(f"Saved transcript: {txt_path}")
         if json_path:
             console.print(f"Saved raw JSON: {json_path}")
+
+        # Optional: copy the transcript text to the system clipboard
+        if copy:
+            try:
+                copy_to_clipboard(text)
+                console.print("Transcription copied to clipboard.")
+            except Exception as e:
+                logging.warning("Failed to copy transcript to clipboard: %s", e)
+                console.print("Warning: failed to copy transcription to clipboard.")
 
     except Exception as e:
         logging.exception("Error in record command")

@@ -23,6 +23,7 @@ dependencies = [
   "sounddevice",
   "soundfile",
   "python-dotenv",
+  "pyperclip",
   "mistralai",
 ]
 

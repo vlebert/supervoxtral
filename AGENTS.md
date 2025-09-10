@@ -38,10 +38,15 @@ black svx/
 ruff check svx/
 mypy svx/
 
-
 # Run
 svx --provider mistral --format mp3 --prompt "What's in this file?"
 ```
+
+## Maintenance
+
+- use `uv` to install dependancies if needed
+- update `pyproject.toml` then run uv `pip install -e .`
+
 
 ## Code style
 - **Imports**: `from __future__ import annotations` first, then stdlib, third-party, local

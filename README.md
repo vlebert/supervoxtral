@@ -119,6 +119,11 @@ Planned MVP commands:
   ```
   svx --provider mistral --format mp3 --prompt "What's in this file?"
   ```
+  Tip: you can copy the final transcript to your system clipboard by adding the `--copy` flag. This is useful to quickly paste the result into another app or note.
+  Example:
+  ```
+  svx --provider mistral --format mp3 --prompt "What's in this file?" --copy
+  ```
 
 ### Advanced prompt management
 
