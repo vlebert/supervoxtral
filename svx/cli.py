@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import cast
 
 import sounddevice as sd
 import soundfile as sf
@@ -25,6 +26,7 @@ ROOT_DIR = Path.cwd()
 RECORDINGS_DIR = ROOT_DIR / "recordings"
 TRANSCRIPTS_DIR = ROOT_DIR / "transcripts"
 LOGS_DIR = ROOT_DIR / "logs"
+PROMPT_DIR = ROOT_DIR / "prompt"
 
 
 def setup_environment(log_level: str = "INFO") -> None:
@@ -44,6 +46,14 @@ def setup_environment(log_level: str = "INFO") -> None:
     # Ensure output directories exist
     RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
     TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
+    PROMPT_DIR.mkdir(parents=True, exist_ok=True)
+    # Initialize default prompt files if missing
+    for _prompt_file in (PROMPT_DIR / "system.txt", PROMPT_DIR / "user.txt"):
+        try:
+            if not _prompt_file.exists():
+                _prompt_file.write_text("", encoding="utf-8")
+        except Exception as _e:
+            logging.debug("Could not initialize prompt file %s: %s", _prompt_file, _e)
 
 
 def timestamp() -> str:
@@ -169,9 +179,34 @@ def read_file_as_base64(path: Path) -> str:
     return base64.b64encode(content).decode("utf-8")
 
 
+def read_text_file(path: Path) -> str:
+    """Read a UTF-8 text file and return its content."""
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except Exception as e:
+        logging.warning("Failed to read text file %s: %s", path, e)
+        return ""
+
+
+def resolve_prompt(inline: str | None, file_path: Path | None) -> str | None:
+    """Combine file content and inline prompt (file first), separated by a blank line."""
+    parts: list[str] = []
+    if file_path and Path(file_path).exists():
+        file_text = read_text_file(Path(file_path)).strip()
+        if file_text:
+            parts.append(file_text)
+    if inline:
+        inline_text = inline.strip()
+        if inline_text:
+            parts.append(inline_text)
+    combined = "\n\n".join(parts).strip()
+    return combined if combined else None
+
+
 def mistral_chat_with_audio(
     audio_path: Path,
-    prompt: str,
+    user_prompt: str | None,
+    system_prompt: str | None = None,
     model: str = "voxtral-mini-latest",
 ) -> tuple[str, dict]:
     """Send audio to Mistral Voxtral 'chat with audio' and return (text, raw_response_dict)."""
@@ -188,15 +223,28 @@ def mistral_chat_with_audio(
     client = Mistral(api_key=api_key)
     audio_b64 = read_file_as_base64(audio_path)
 
-    messages: list[MessagesTypedDict] = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "input_audio", "input_audio": audio_b64},
-                {"type": "text", "text": prompt},
-            ],
-        }
+    messages: list[MessagesTypedDict] = []
+
+    if system_prompt:
+        messages.append(
+            cast(
+                MessagesTypedDict,
+                {
+                    "role": "system",
+                    "content": [
+                        {"type": "text", "text": system_prompt},
+                    ],
+                },
+            )
+        )
+
+    user_content: list[dict] = [
+        {"type": "input_audio", "input_audio": audio_b64},
     ]
+    if user_prompt:
+        user_content.append({"type": "text", "text": user_prompt})
+
+    messages.append(cast(MessagesTypedDict, {"role": "user", "content": user_content}))
 
     logging.info(
         "Calling Mistral model=%s with audio=%s (%s)", model, audio_path.name, audio_path.suffix
@@ -264,10 +312,27 @@ def record(
         "-f",
         help="Output format to send: wav|mp3|opus. Recording is always WAV, conversion optional.",
     ),
-    prompt: str | None = typer.Option(
+    user_prompt: str | None = typer.Option(
         None,
+        "--user-prompt",
         "--prompt",
-        help="Prompt text for providers that support chat with audio (e.g., Mistral Voxtral).",
+        help="User prompt text (inline).",
+    ),
+    user_prompt_file: Path | None = typer.Option(
+        None,
+        "--user-prompt-file",
+        "--prompt-file",
+        help="Path to a text file containing the user prompt.",
+    ),
+    sys_prompt: str | None = typer.Option(
+        None,
+        "--sys-prompt",
+        help="System prompt text (inline).",
+    ),
+    sys_prompt_file: Path | None = typer.Option(
+        None,
+        "--sys-prompt-file",
+        help="Path to a text file containing the system prompt.",
     ),
     model: str = typer.Option(
         "voxtral-mini-latest",
@@ -340,9 +405,27 @@ def record(
         # Provider handling
         provider = provider.lower().strip()
         if provider == "mistral":
-            # Default prompt if none provided
-            use_prompt = prompt or "What's in this audio?"
-            text, raw = mistral_chat_with_audio(to_send_path, prompt=use_prompt, model=model)
+            # Resolve prompts (auto-detect prompt/*.txt if not provided)
+            sys_file = (
+                sys_prompt_file
+                if sys_prompt_file
+                else (PROMPT_DIR / "system.txt" if (PROMPT_DIR / "system.txt").exists() else None)
+            )
+            user_file = (
+                user_prompt_file
+                if user_prompt_file
+                else (PROMPT_DIR / "user.txt" if (PROMPT_DIR / "user.txt").exists() else None)
+            )
+
+            resolved_system = resolve_prompt(sys_prompt, sys_file)
+            resolved_user = resolve_prompt(user_prompt, user_file) or "What's in this audio?"
+
+            text, raw = mistral_chat_with_audio(
+                to_send_path,
+                user_prompt=resolved_user,
+                system_prompt=resolved_system,
+                model=model,
+            )
             console.print(Panel.fit(text, title="Mistral Voxtral Response"))
             txt_path, json_path = save_transcript(base, "mistral", text, raw)
             console.print(f"Saved transcript: {txt_path}")
