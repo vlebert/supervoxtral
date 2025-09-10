@@ -71,6 +71,10 @@ recordings/
 transcripts/
 !transcripts/.gitkeep
 
+# Prompts
+prompt/
+!prompt/.gitkeep
+
 # Local environment variables (use .env.example for template)
 .env
 .env.*
