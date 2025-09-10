@@ -19,7 +19,7 @@ supervoxtral/
 │   │   ├── base.py                # Provider protocol + shared types
 │   │   └── mistral.py             # Mistral Voxtral implementation
 │   └── ui/                        # TUI (future)
-├── prompt/                        # Default user prompt file
+├── prompt/                        # Default user prompt file (user.md)
 ├── recordings/                    # Audio files (WAV/MP3/Opus)
 ├── transcripts/                   # API responses (txt/json)
 ├── logs/                          # Application logs

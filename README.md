@@ -126,23 +126,21 @@ You can provide a user prompt, either inline or via a file:
 
 #### User prompt (inline)
 ```
-svx --provider mistral --sys-prompt "Tu es un assistant concis." --user-prompt "Transcris puis résume ce qui est dit dans l'audio."
+svx --provider mistral --user-prompt "Transcris puis résume ce qui est dit dans l'audio."
 ```
 
 #### User prompt from file
 ```
-svx --provider mistral --user-prompt-file prompt/user.txt
+svx --provider mistral --user-prompt-file prompt/user.md
 ```
 
-#### Mix: file + inline (concatenated)
-```
-svx --provider mistral --user-prompt-file prompt/user.txt --user-prompt "Ajoute une liste à puces."
-```
+#### No concatenation
+Priority: inline (--user-prompt) > file (--user-prompt-file) > prompt/user.md (if present) > default ("What's in this audio?"). The file and inline prompts are not concatenated.
 
 #### Auto-detection from `prompt/` directory
 If no prompt options are provided, the tool will automatically use:
 
-- `prompt/user.txt` (if present and non-empty) as the user prompt
+- `prompt/user.md` (if present and non-empty) as the user prompt
 
 If no user prompt is provided (inline or file), it defaults to "What's in this audio?".
 
@@ -173,7 +171,7 @@ Additional useful options (to be implemented as flags):
 
 
 - `--user-prompt` (alias: `--prompt`; user prompt text, inline)
-- `--user-prompt-file` (alias: `--prompt-file`; path to user prompt text file)
+- `--user-prompt-file` (alias: `--prompt-file`; path to user prompt markdown file, e.g., prompt/user.md)
 
 Alternative invocation (without console script):
 ```

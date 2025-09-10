@@ -16,7 +16,7 @@ from svx.core.config import (
     TRANSCRIPTS_DIR,
     setup_environment,
 )
-from svx.core.prompt import init_default_prompt_files, resolve_prompt
+from svx.core.prompt import init_default_prompt_files
 from svx.core.storage import save_transcript
 from svx.providers import get_provider
 
@@ -139,12 +139,33 @@ def record(
                 except Exception:
                     logging.warning("Failed to remove WAV after conversion: %s", wav_path)
 
-        # Resolve prompt (auto-detect prompt/user.txt if not provided)
-        user_file = user_prompt_file if user_prompt_file else (PROMPT_DIR / "user.txt")
+        # Resolve user prompt without concatenation:
+        # Priority: inline (--user-prompt) > file (--user-prompt-file) > prompt/user.md > default
+        final_user_prompt: str | None = None
 
-        resolved_user = resolve_prompt(user_prompt, user_file if user_file.exists() else None)
-        if not resolved_user:
-            resolved_user = "What's in this audio?"
+        if user_prompt and user_prompt.strip():
+            final_user_prompt = user_prompt.strip()
+        elif user_prompt_file:
+            try:
+                text = Path(user_prompt_file).read_text(encoding="utf-8").strip()
+                if text:
+                    final_user_prompt = text
+            except Exception:
+                logging.warning("Failed to read user prompt file: %s", user_prompt_file)
+        else:
+            fallback_file = PROMPT_DIR / "user.md"
+            if fallback_file.exists():
+                try:
+                    text = fallback_file.read_text(encoding="utf-8").strip()
+                    if text:
+                        final_user_prompt = text
+                except Exception:
+                    logging.debug(
+                        "Could not read fallback prompt file %s: error ignored", fallback_file
+                    )
+
+        if not final_user_prompt:
+            final_user_prompt = "What's in this audio?"
 
         # Provider handling via registry
         try:
@@ -154,7 +175,7 @@ def record(
 
         result = prov.transcribe(
             to_send_path,
-            user_prompt=resolved_user,
+            user_prompt=final_user_prompt,
             model=model,
             language=language,
         )
