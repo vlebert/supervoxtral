@@ -68,7 +68,7 @@ def record(
         help="Input device (index or name). Leave empty for default.",
     ),
     keep_wav: bool = typer.Option(
-        True,
+        False,
         "--keep-wav/--no-keep-wav",
         help="Keep the raw WAV file after conversion.",
     ),
