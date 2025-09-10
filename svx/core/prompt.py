@@ -4,7 +4,7 @@ Prompt utilities for SuperVoxtral.
 This module provides:
 - Safe reading of UTF-8 text files.
 - Resolution/combination of inline and file-based prompts.
-- Initialization of default prompt files (system.txt, user.txt).
+- Initialization of default prompt files (user.txt).
 
 Intended to be small and dependency-light so it can be imported broadly.
 """
@@ -63,7 +63,6 @@ def resolve_prompt(inline: str | None, file_path: Path | None) -> str | None:
 def init_default_prompt_files(prompt_dir: Path) -> None:
     """
     Ensure default prompt files exist in `prompt_dir`:
-    - system.txt
     - user.txt
 
     If they don't exist, create them as empty files.
@@ -71,7 +70,7 @@ def init_default_prompt_files(prompt_dir: Path) -> None:
     prompt_dir = Path(prompt_dir)
     prompt_dir.mkdir(parents=True, exist_ok=True)
 
-    for _prompt_file in (prompt_dir / "system.txt", prompt_dir / "user.txt"):
+    for _prompt_file in (prompt_dir / "user.txt",):
         try:
             if not _prompt_file.exists():
                 _prompt_file.write_text("", encoding="utf-8")

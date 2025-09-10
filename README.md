@@ -122,31 +122,31 @@ Planned MVP commands:
 
 ### Advanced prompt management
 
-You can now provide both system and user prompts, either inline or via files:
+You can provide a user prompt, either inline or via a file:
 
-#### System and user prompts (inline)
+#### User prompt (inline)
 ```
 svx --provider mistral --sys-prompt "Tu es un assistant concis." --user-prompt "Transcris puis résume ce qui est dit dans l'audio."
 ```
 
-#### System and user prompts from files
+#### User prompt from file
 ```
-svx --provider mistral --sys-prompt-file prompt/system.txt --user-prompt-file prompt/user.txt
+svx --provider mistral --user-prompt-file prompt/user.txt
 ```
 
 #### Mix: file + inline (concatenated)
 ```
-svx --provider mistral --sys-prompt-file prompt/system.txt --sys-prompt "Ajoute une liste à puces."
+svx --provider mistral --user-prompt-file prompt/user.txt --user-prompt "Ajoute une liste à puces."
 ```
 
 #### Auto-detection from `prompt/` directory
 If no prompt options are provided, the tool will automatically use:
-- `prompt/system.txt` (if present and non-empty) as the system prompt
+
 - `prompt/user.txt` (if present and non-empty) as the user prompt
 
 If no user prompt is provided (inline or file), it defaults to "What's in this audio?".
 
-The system prompt is always sent as the first message, followed by the user message containing the audio and (optionally) text.
+A single user message is sent containing the audio and (optionally) text.
   Flow:
   - Starts recording WAV immediately.
   - Press Enter (or Ctrl+C) to stop recording.
@@ -170,8 +170,8 @@ Additional useful options (to be implemented as flags):
 - `--keep-wav` (keep the raw WAV after conversion)
 - `--outfile-prefix mynote_2025-09-09` (custom file prefix)
 - `--log-level debug` (verbose logs)
-- `--sys-prompt` (system prompt text, inline)
-- `--sys-prompt-file` (path to system prompt text file)
+
+
 - `--user-prompt` (alias: `--prompt`; user prompt text, inline)
 - `--user-prompt-file` (alias: `--prompt-file`; path to user prompt text file)
 

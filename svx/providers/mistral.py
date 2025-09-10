@@ -9,7 +9,6 @@ Requirements:
 - Package 'mistralai' installed and importable.
 
 The provider composes messages with:
-- Optional system text (role: system)
 - User content including the audio (base64) and optional user prompt text.
 
 It returns a normalized TranscriptionResult: {"text": str, "raw": dict}.
@@ -100,7 +99,6 @@ class MistralProvider(Provider):
         self,
         audio_path: Path,
         user_prompt: str | None,
-        system_prompt: str | None,
         model: str | None = "voxtral-mini-latest",
         language: str | None = None,  # Currently unused by Mistral Voxtral
     ) -> TranscriptionResult:
@@ -110,7 +108,7 @@ class MistralProvider(Provider):
         Args:
             audio_path: Path to wav/mp3/opus file to send.
             user_prompt: Optional user prompt to include with the audio.
-            system_prompt: Optional system message.
+
             model: Voxtral model identifier (default: "voxtral-mini-latest").
             language: Currently unused; kept for Provider interface compatibility.
 
@@ -138,22 +136,11 @@ class MistralProvider(Provider):
             raise ProviderError(f"Audio file not found: {audio_path}")
         audio_b64 = _read_file_as_base64(Path(audio_path))
 
-        # Compose messages
+        # Compose messages (user only)
         messages: list[dict[str, Any]] = []
-        if system_prompt:
-            messages.append(
-                {
-                    "role": "system",
-                    "content": [
-                        {"type": "text", "text": system_prompt},
-                    ],
-                }
-            )
-
         user_content: list[dict[str, Any]] = [{"type": "input_audio", "input_audio": audio_b64}]
         if user_prompt:
             user_content.append({"type": "text", "text": user_prompt})
-
         messages.append({"role": "user", "content": user_content})
 
         # Execute request

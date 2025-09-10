@@ -47,7 +47,7 @@ class Provider(Protocol):
         name: A short, lowercase, unique identifier for the provider (e.g. "mistral").
 
     Required methods:
-        transcribe: Perform the transcription given an audio file and optional prompts.
+        transcribe: Perform the transcription given an audio file and optional user prompt.
     """
 
     # Short, unique name (e.g., "mistral", "whisper")
@@ -57,7 +57,6 @@ class Provider(Protocol):
         self,
         audio_path: Path,
         user_prompt: str | None,
-        system_prompt: str | None,
         model: str | None = None,
         language: str | None = None,
     ) -> TranscriptionResult:
@@ -67,7 +66,7 @@ class Provider(Protocol):
         Args:
             audio_path: Path to an audio file (wav/mp3/opus...) to send to the provider.
             user_prompt: Optional user prompt to guide the transcription or analysis.
-            system_prompt: Optional system prompt to steer behavior or role.
+
             model: Optional provider-specific model identifier.
             language: Optional language hint/constraint (e.g., "en", "fr").
 

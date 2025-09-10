@@ -50,16 +50,6 @@ def record(
         "--prompt-file",
         help="Path to a text file containing the user prompt.",
     ),
-    sys_prompt: str | None = typer.Option(
-        None,
-        "--sys-prompt",
-        help="System prompt text (inline).",
-    ),
-    sys_prompt_file: Path | None = typer.Option(
-        None,
-        "--sys-prompt-file",
-        help="Path to a text file containing the system prompt.",
-    ),
     model: str = typer.Option(
         "voxtral-mini-latest",
         "--model",
@@ -149,11 +139,9 @@ def record(
                 except Exception:
                     logging.warning("Failed to remove WAV after conversion: %s", wav_path)
 
-        # Resolve prompts (auto-detect prompt/*.txt if not provided)
-        sys_file = sys_prompt_file if sys_prompt_file else (PROMPT_DIR / "system.txt")
+        # Resolve prompt (auto-detect prompt/user.txt if not provided)
         user_file = user_prompt_file if user_prompt_file else (PROMPT_DIR / "user.txt")
 
-        resolved_system = resolve_prompt(sys_prompt, sys_file if sys_file.exists() else None)
         resolved_user = resolve_prompt(user_prompt, user_file if user_file.exists() else None)
         if not resolved_user:
             resolved_user = "What's in this audio?"
@@ -167,7 +155,6 @@ def record(
         result = prov.transcribe(
             to_send_path,
             user_prompt=resolved_user,
-            system_prompt=resolved_system,
             model=model,
             language=language,
         )
