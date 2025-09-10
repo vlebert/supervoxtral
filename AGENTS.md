@@ -31,12 +31,25 @@ supervoxtral/
 ## Build & test
 ```bash
 # Setup
-source .venv/bin/activate
 uv pip install -e .
+
+# Lint & format
+black svx/
+ruff check svx/
+mypy svx/
+
 
 # Run
 svx --provider mistral --format mp3 --prompt "What's in this file?"
+```
 
+## Code style
+- **Imports**: `from __future__ import annotations` first, then stdlib, third-party, local
+- **Formatting**: Black (100 line length), ruff for linting (E, F, I, UP rules)
+- **Types**: Full type hints required, use `TypedDict` for data structures, `Protocol` for interfaces
+- **Naming**: snake_case for functions/variables, PascalCase for classes, UPPER_CASE for constants
+- **Error handling**: Custom exceptions inherit from standard types, use `ProviderError` for API failures
+- **Docstrings**: Google-style with clear purpose/dependencies/`__all__` exports
 
 ## Security
 - API keys in `.env` (gitignored)
