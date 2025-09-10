@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any
 
 __all__ = [
     "save_text_file",
@@ -86,8 +86,8 @@ def save_transcript(
     base_name: str,
     provider: str,
     text: str,
-    raw: Optional[dict] = None,
-) -> Tuple[Path, Optional[Path]]:
+    raw: dict | None = None,
+) -> tuple[Path, Path | None]:
     """
     Save a transcript text and, optionally, the raw JSON response.
 
@@ -110,7 +110,7 @@ def save_transcript(
     text_path = transcripts_dir / f"{safe_base}_{safe_provider}.txt"
     save_text_file(text_path, text or "")
 
-    json_path: Optional[Path] = None
+    json_path: Path | None = None
     if raw is not None:
         json_path = transcripts_dir / f"{safe_base}_{safe_provider}.json"
         save_json_file(json_path, raw, pretty=True)

@@ -22,7 +22,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, cast
 
 from .base import Provider, ProviderError, TranscriptionResult
 
@@ -54,7 +54,7 @@ def _extract_text_from_response(resp: Any) -> str:
         if isinstance(content, str):
             return content
         if isinstance(content, list):
-            parts: List[str] = []
+            parts: list[str] = []
             for c in content:
                 if isinstance(c, dict) and c.get("type") == "text":
                     parts.append(c.get("text", ""))
@@ -64,7 +64,7 @@ def _extract_text_from_response(resp: Any) -> str:
         return str(resp)
 
 
-def _normalize_raw_response(resp: Any) -> Dict[str, Any]:
+def _normalize_raw_response(resp: Any) -> dict[str, Any]:
     """
     Convert the response into a plain dict for persistence.
 
@@ -99,10 +99,10 @@ class MistralProvider(Provider):
     def transcribe(
         self,
         audio_path: Path,
-        user_prompt: Optional[str],
-        system_prompt: Optional[str],
-        model: Optional[str] = "voxtral-mini-latest",
-        language: Optional[str] = None,  # Currently unused by Mistral Voxtral
+        user_prompt: str | None,
+        system_prompt: str | None,
+        model: str | None = "voxtral-mini-latest",
+        language: str | None = None,  # Currently unused by Mistral Voxtral
     ) -> TranscriptionResult:
         """
         Transcribe/process audio using Mistral's chat-with-audio endpoint.
@@ -139,7 +139,7 @@ class MistralProvider(Provider):
         audio_b64 = _read_file_as_base64(Path(audio_path))
 
         # Compose messages
-        messages: List[Dict[str, Any]] = []
+        messages: list[dict[str, Any]] = []
         if system_prompt:
             messages.append(
                 {
@@ -150,7 +150,7 @@ class MistralProvider(Provider):
                 }
             )
 
-        user_content: List[Dict[str, Any]] = [{"type": "input_audio", "input_audio": audio_b64}]
+        user_content: list[dict[str, Any]] = [{"type": "input_audio", "input_audio": audio_b64}]
         if user_prompt:
             user_content.append({"type": "text", "text": user_prompt})
 
@@ -165,7 +165,7 @@ class MistralProvider(Provider):
             Path(audio_path).name,
             Path(audio_path).suffix,
         )
-        resp = client.chat.complete(model=model_name, messages=messages)
+        resp = client.chat.complete(model=model_name, messages=cast(Any, messages))
 
         # Extract normalized text and raw payload
         text = _extract_text_from_response(resp)

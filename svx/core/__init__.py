@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Optional, Union
+from typing import Literal
 
 # Defaults and shared constants
 DEFAULT_SAMPLE_RATE: int = 16000
@@ -31,7 +31,7 @@ class RecordingSettings:
     samplerate: int = DEFAULT_SAMPLE_RATE
     channels: int = DEFAULT_CHANNELS
     # On some platforms, device can be an int index or a device name string.
-    device: Optional[Union[int, str]] = None
+    device: int | str | None = None
     subtype: str = DEFAULT_WAV_SUBTYPE  # e.g., "PCM_16"
 
 

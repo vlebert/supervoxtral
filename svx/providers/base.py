@@ -12,7 +12,7 @@ All concrete providers should implement the `Provider` protocol.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Protocol, TypedDict, runtime_checkable
+from typing import Protocol, TypedDict, runtime_checkable
 
 
 class TranscriptionResult(TypedDict):
@@ -56,10 +56,10 @@ class Provider(Protocol):
     def transcribe(
         self,
         audio_path: Path,
-        user_prompt: Optional[str],
-        system_prompt: Optional[str],
-        model: Optional[str] = None,
-        language: Optional[str] = None,
+        user_prompt: str | None,
+        system_prompt: str | None,
+        model: str | None = None,
+        language: str | None = None,
     ) -> TranscriptionResult:
         """
         Transcribe or process `audio_path` and return a normalized result.

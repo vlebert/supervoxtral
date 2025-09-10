@@ -12,7 +12,7 @@ Design goals:
 
 from __future__ import annotations
 
-from typing import Callable, Dict, List
+from collections.abc import Callable
 
 from .base import Provider, ProviderError, TranscriptionResult
 
@@ -30,7 +30,7 @@ __all__ = [
 ProviderFactory = Callable[[], Provider]
 
 # Internal registry mapping provider name -> factory
-_registry: Dict[str, ProviderFactory] = {}
+_registry: dict[str, ProviderFactory] = {}
 
 
 def register_provider(name: str, factory: ProviderFactory) -> None:
@@ -56,13 +56,12 @@ def get_provider(name: str) -> Provider:
     try:
         factory = _registry[key]
     except KeyError as e:
-        raise KeyError(
-            f"Unknown provider '{name}'. Available: {', '.join(sorted(_registry.keys())) or '(none)'}"
-        ) from e
+        available = ", ".join(sorted(_registry.keys())) or "(none)"
+        raise KeyError(f"Unknown provider '{name}'. Available: {available}") from e
     return factory()
 
 
-def available_providers() -> List[str]:
+def available_providers() -> list[str]:
     """
     Return the list of available provider names (sorted).
     """

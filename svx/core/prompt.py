@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 __all__ = [
     "read_text_file",
@@ -34,7 +33,7 @@ def read_text_file(path: Path | str) -> str:
         return ""
 
 
-def resolve_prompt(inline: Optional[str], file_path: Optional[Path]) -> Optional[str]:
+def resolve_prompt(inline: str | None, file_path: Path | None) -> str | None:
     """
     Combine file content and inline prompt (file first), separated by a blank line.
 
