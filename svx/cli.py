@@ -8,7 +8,6 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Optional, Tuple, Union
 
 import sounddevice as sd
 import soundfile as sf
@@ -51,7 +50,7 @@ def timestamp() -> str:
     return time.strftime("%Y%m%d_%H%M%S")
 
 
-def detect_ffmpeg() -> Optional[str]:
+def detect_ffmpeg() -> str | None:
     """Return 'ffmpeg' if available on PATH, otherwise None."""
     try:
         subprocess.run(
@@ -96,7 +95,7 @@ def convert_audio(input_wav: Path, fmt: str) -> Path:
         ]
 
     logging.info("Running ffmpeg: %s", " ".join(cmd))
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         logging.error("ffmpeg failed: %s", proc.stderr.strip())
         raise RuntimeError(f"ffmpeg conversion failed with code {proc.returncode}")
@@ -107,10 +106,10 @@ def record_wav(
     output_path: Path,
     samplerate: int = 16000,
     channels: int = 1,
-    device: Optional[Union[int, str]] = None,
+    device: int | str | None = None,
 ) -> float:
     """Record audio to a WAV file until the user presses Enter. Returns duration seconds."""
-    q: "queue.Queue" = queue.Queue()
+    q: queue.Queue = queue.Queue()
     stop_event = threading.Event()
     start_time = time.time()
 
@@ -174,7 +173,7 @@ def mistral_chat_with_audio(
     audio_path: Path,
     prompt: str,
     model: str = "voxtral-mini-latest",
-) -> Tuple[str, dict]:
+) -> tuple[str, dict]:
     """Send audio to Mistral Voxtral 'chat with audio' and return (text, raw_response_dict)."""
     api_key = os.environ.get("MISTRAL_API_KEY")
     if not api_key:
@@ -182,13 +181,14 @@ def mistral_chat_with_audio(
 
     try:
         from mistralai import Mistral
+        from mistralai.models import MessagesTypedDict
     except Exception as e:
         raise RuntimeError("Failed to import 'mistralai'. Ensure it is installed.") from e
 
     client = Mistral(api_key=api_key)
     audio_b64 = read_file_as_base64(audio_path)
 
-    messages = [
+    messages: list[MessagesTypedDict] = [
         {
             "role": "user",
             "content": [
@@ -238,8 +238,8 @@ def mistral_chat_with_audio(
 
 
 def save_transcript(
-    base_name: str, provider: str, text: str, raw: Optional[dict] = None
-) -> Tuple[Path, Optional[Path]]:
+    base_name: str, provider: str, text: str, raw: dict | None = None
+) -> tuple[Path, Path | None]:
     """Save transcript text and optionally raw JSON. Returns (text_path, json_path_or_None)."""
     text_path = TRANSCRIPTS_DIR / f"{base_name}_{provider}.txt"
     text_path.write_text(text or "", encoding="utf-8")
@@ -264,7 +264,7 @@ def record(
         "-f",
         help="Output format to send: wav|mp3|opus. Recording is always WAV, conversion optional.",
     ),
-    prompt: Optional[str] = typer.Option(
+    prompt: str | None = typer.Option(
         None,
         "--prompt",
         help="Prompt text for providers that support chat with audio (e.g., Mistral Voxtral).",
@@ -274,14 +274,14 @@ def record(
         "--model",
         help="Model name for the provider (for Mistral Voxtral).",
     ),
-    language: Optional[str] = typer.Option(
+    language: str | None = typer.Option(
         None,
         "--language",
         help="Language hint (used by some providers, e.g., Whisper).",
     ),
     rate: int = typer.Option(16000, "--rate", help="Sample rate (Hz), e.g., 16000 or 32000."),
     channels: int = typer.Option(1, "--channels", help="Number of channels (1=mono, 2=stereo)."),
-    device: Optional[str] = typer.Option(
+    device: str | None = typer.Option(
         None,
         "--device",
         help="Input device (index or name). Leave empty for default.",
@@ -291,7 +291,7 @@ def record(
         "--keep-wav/--no-keep-wav",
         help="Keep the raw WAV file after conversion.",
     ),
-    outfile_prefix: Optional[str] = typer.Option(
+    outfile_prefix: str | None = typer.Option(
         None,
         "--outfile-prefix",
         help="Custom output file prefix (default uses timestamp).",

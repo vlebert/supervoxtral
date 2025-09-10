@@ -16,7 +16,7 @@ except Exception:  # pragma: no cover - very old Python fallback
     # (not expected with Python 3.10+)
     PackageNotFoundError = Exception  # type: ignore
 
-    def version(_: str) -> str:  # type: ignore
+    def version(distribution_name: str) -> str:  # type: ignore
         return "0.0.0"
 
 
