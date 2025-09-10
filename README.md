@@ -110,14 +110,14 @@ Make sure your virtual environment is activated and the project is installed (`p
 
 General command form:
 ```
-svx <command> [OPTIONS]
+svx [OPTIONS]
 ```
 
 Planned MVP commands:
 
 - Record with Mistral Voxtral (chat with audio) and a prompt:
   ```
-  svx record --provider mistral --format mp3 --prompt "What's in this file?"
+  svx --provider mistral --format mp3 --prompt "What's in this file?"
   ```
   Flow:
   - Starts recording WAV immediately.
@@ -128,7 +128,7 @@ Planned MVP commands:
 
 - Record with OpenAI Whisper (optional):
   ```
-  svx record --provider whisper --format wav --language fr
+  svx --provider whisper --format wav --language fr
   ```
   Flow:
   - Starts recording WAV.
@@ -145,7 +145,7 @@ Additional useful options (to be implemented as flags):
 
 Alternative invocation (without console script):
 ```
-python -m svx.cli record --provider mistral --format mp3 --prompt "..."
+python -m svx.cli --provider mistral --format mp3 --prompt "..."
 ```
 
 ---
@@ -201,7 +201,7 @@ The tool will send the converted file if you set `--format mp3` or `--format opu
 
 - Phase 1 (MVP):
   - [x] Project skeleton, dependencies, README
-  - [ ] CLI: `record` command (manual stop)
+  - [ ] CLI: recording command (manual stop)
   - [ ] WAV capture (sounddevice/soundfile)
   - [ ] Conversion via ffmpeg (MP3/Opus)
   - [ ] Provider: Mistral Voxtral (chat with audio + prompt)
@@ -241,3 +241,18 @@ The tool will send the converted file if you set `--format mp3` or `--format opu
 ## License
 
 MIT
+
+## Progress checklist
+```markdown
+- [x] Initialiser projet (Typer CLI, config .env)
+- [x] Implémenter l'enregistrement WAV (start/stop par commande)
+- [x] Ajouter conversion optionnelle via ffmpeg (MP3/Opus)
+- [x] Intégrer provider Mistral Voxtral (chat with audio + prompt)
+- [ ] Intégrer provider OpenAI Whisper (optionnel)
+- [x] Stocker résultats dans transcripts/ + logs
+- [x] Ajouter structure projet dans AGENTS.md
+- [ ] Ajouter TUI Textual avec bouton STOP (phase 2)
+- [ ] Préparer prompts/ pour post-processing (phase ultérieure)
+- [x] Rédiger doc d'installation/usage (incl. ffmpeg)
+- [x] Créer AGENTS.md court pour les agents
+```

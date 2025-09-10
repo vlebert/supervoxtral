@@ -27,7 +27,7 @@ source .venv/bin/activate
 uv pip install -e .
 
 # Run
-svx record --provider mistral --format mp3 --prompt "What's in this file?"
+svx --provider mistral --format mp3 --prompt "What's in this file?"
 
 
 ## Security
@@ -35,18 +35,3 @@ svx record --provider mistral --format mp3 --prompt "What's in this file?"
 - Required: `MISTRAL_API_KEY`
 - Optional: `OPENAI_API_KEY`
 - Validate user inputs
-
-## Progress checklist
-```markdown
-- [x] Initialiser projet (Typer CLI, config .env)
-- [x] Implémenter l'enregistrement WAV (start/stop par commande)
-- [x] Ajouter conversion optionnelle via ffmpeg (MP3/Opus)
-- [x] Intégrer provider Mistral Voxtral (chat with audio + prompt)
-- [ ] Intégrer provider OpenAI Whisper (optionnel)
-- [x] Stocker résultats dans transcripts/ + logs
-- [x] Ajouter structure projet dans AGENTS.md
-- [ ] Ajouter TUI Textual avec bouton STOP (phase 2)
-- [ ] Préparer prompts/ pour post-processing (phase ultérieure)
-- [x] Rédiger doc d'installation/usage (incl. ffmpeg)
-- [x] Créer AGENTS.md court pour les agents
-```
