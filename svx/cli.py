@@ -232,5 +232,92 @@ def record(
         raise typer.Exit(code=1)
 
 
+@app.command()
+def gui(
+    provider: str = typer.Option(
+        "mistral",
+        "--provider",
+        "-p",
+        help="Provider to use (e.g., 'mistral').",
+    ),
+    audio_format: str = typer.Option(
+        "opus",
+        "--format",
+        "-f",
+        help="Target format to send: wav|mp3|opus.",
+    ),
+    user_prompt: str | None = typer.Option(
+        None,
+        "--user-prompt",
+        "--prompt",
+        help="User prompt text (inline).",
+    ),
+    user_prompt_file: Path | None = typer.Option(
+        None,
+        "--user-prompt-file",
+        "--prompt-file",
+        help="Path to a text file containing the user prompt.",
+    ),
+    model: str = typer.Option(
+        "voxtral-mini-latest",
+        "--model",
+        help="Model name for the provider (for Mistral Voxtral).",
+    ),
+    language: str | None = typer.Option(
+        None,
+        "--language",
+        help="Language hint (used by certain providers).",
+    ),
+    rate: int = typer.Option(16000, "--rate", help="Sample rate (Hz), e.g., 16000 or 32000."),
+    channels: int = typer.Option(1, "--channels", help="Number of channels (1=mono, 2=stereo)."),
+    device: str | None = typer.Option(
+        None,
+        "--device",
+        help="Input device (index or name). Leave empty for default.",
+    ),
+    keep_audio_files: bool = typer.Option(
+        False,
+        "--keep-audio-files/--no-keep-audio-files",
+        help="Keep all audio files (WAV and converted format).",
+    ),
+    outfile_prefix: str | None = typer.Option(
+        None,
+        "--outfile-prefix",
+        help="Custom output file prefix (default uses timestamp).",
+    ),
+    copy: bool = typer.Option(
+        True,
+        "--copy/--no-copy",
+        help="Copy the final transcript text to the system clipboard.",
+    ),
+    log_level: str = typer.Option(
+        "INFO",
+        "--log-level",
+        help="Logging level (DEBUG, INFO, WARNING, ERROR).",
+    ),
+):
+    """
+    Launch minimal GUI and start recording immediately.
+    Defaults: --provider mistral --format opus --copy --no-keep-audio-files
+    """
+    from svx.ui.qt_app import run_gui
+
+    run_gui(
+        provider=provider,
+        audio_format=audio_format,
+        user_prompt=user_prompt,
+        user_prompt_file=user_prompt_file,
+        model=model,
+        language=language,
+        rate=rate,
+        channels=channels,
+        device=device,
+        keep_audio_files=keep_audio_files,
+        outfile_prefix=outfile_prefix,
+        do_copy=copy,
+        log_level=log_level,
+    )
+
+
 if __name__ == "__main__":
     app()

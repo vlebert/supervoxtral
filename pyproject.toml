@@ -30,6 +30,7 @@ dependencies = [
 [project.optional-dependencies]
 openai = ["openai"]
 tui = ["textual"]
+gui = ["PySide6"]
 dev = ["black", "ruff", "mypy", "types-python-dotenv", "pytest"]
 
 [project.scripts]
