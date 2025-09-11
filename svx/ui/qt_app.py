@@ -259,6 +259,7 @@ class RecorderWindow(QWidget):
 
         # Start recording immediately
         self._thread.start()
+        QApplication.beep()
 
         # Ensure proper shutdown if user closes the window directly
         self._closing = False
@@ -273,9 +274,11 @@ class RecorderWindow(QWidget):
 
     def _on_done(self, text: str) -> None:
         self._status_label.setText("Done.")
+        QApplication.beep()
         self._close_soon()
 
     def _on_error(self, message: str) -> None:
+        QApplication.beep()
         QMessageBox.critical(self, "SuperVoxtral", f"Error: {message}")
         self._close_soon()
 
