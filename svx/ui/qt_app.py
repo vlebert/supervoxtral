@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Minimal PySide6 GUI for SuperVoxtral.
 
@@ -19,6 +17,7 @@ Exports:
 - run_gui: convenience launcher to start the Qt application
 """
 
+from __future__ import annotations
 
 import logging
 import threading
@@ -224,7 +223,7 @@ class RecorderWindow(QWidget):
 
         # Window basics
         self.setWindowTitle("SuperVoxtral")
-        self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setMinimumWidth(260)
 
         # UI layout
@@ -267,7 +266,7 @@ class RecorderWindow(QWidget):
 
     def _schedule_topmost_refresh(self) -> None:
         # Some WMs may ignore the first set; nudge it again shortly after show.
-        QTimer.singleShot(50, lambda: self.setWindowFlag(Qt.WindowStaysOnTopHint, True))
+        QTimer.singleShot(50, lambda: self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True))
 
     def _on_status(self, msg: str) -> None:
         self._status_label.setText(msg)
