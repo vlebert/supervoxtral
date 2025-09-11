@@ -68,10 +68,10 @@ def record(
         "--device",
         help="Input device (index or name). Leave empty for default.",
     ),
-    keep_wav: bool = typer.Option(
-        False,
-        "--keep-wav/--no-keep-wav",
-        help="Keep the raw WAV file after conversion.",
+    keep_audio_files: bool = typer.Option(
+        True,
+        "--keep-audio-files/--no-keep-audio-files",
+        help="Keep all audio files (WAV and converted format).",
     ),
     outfile_prefix: str | None = typer.Option(
         None,
@@ -139,11 +139,7 @@ def record(
         to_send_path = wav_path
         if audio_format in {"mp3", "opus"}:
             to_send_path = convert_audio(wav_path, audio_format)
-            if not keep_wav:
-                try:
-                    wav_path.unlink(missing_ok=True)
-                except Exception:
-                    logging.warning("Failed to remove WAV after conversion: %s", wav_path)
+            logging.info("Converted %s -> %s", wav_path, to_send_path)
 
         # Resolve user prompt without concatenation:
         # Priority: inline (--user-prompt) > file (--user-prompt-file) > prompt/user.md > default
@@ -203,6 +199,32 @@ def record(
             except Exception as e:
                 logging.warning("Failed to copy transcript to clipboard: %s", e)
                 console.print("Warning: failed to copy transcription to clipboard.")
+
+        # Post-processing deletion policy (only --keep-audio-files)
+        try:
+            if not keep_audio_files:
+                # Remove WAV
+                try:
+                    if wav_path.exists():
+                        wav_path.unlink()
+                        logging.info("Removed WAV (--no-keep-audio-files): %s", wav_path)
+                except Exception:
+                    logging.warning("Failed to remove WAV: %s", wav_path)
+                # Remove converted file if present and distinct
+                if to_send_path != wav_path:
+                    try:
+                        if Path(to_send_path).exists():
+                            Path(to_send_path).unlink()
+                            logging.info(
+                                "Removed converted audio (--no-keep-audio-files): %s",
+                                to_send_path,
+                            )
+                    except Exception:
+                        logging.warning("Failed to remove converted audio: %s", to_send_path)
+            else:
+                logging.info("Keeping audio files (--keep-audio-files)")
+        except Exception:
+            logging.debug("Audio file cleanup encountered a non-fatal error.", exc_info=True)
 
     except Exception as e:
         logging.exception("Error in record command")
