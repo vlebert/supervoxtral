@@ -3,26 +3,214 @@ from __future__ import annotations
 import logging
 import threading
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 
+import svx.core.config as config
 from svx.core.audio import convert_audio, record_wav, timestamp
 from svx.core.clipboard import copy_to_clipboard
-from svx.core.config import (
-    PROMPT_DIR,
-    RECORDINGS_DIR,
-    TRANSCRIPTS_DIR,
-    setup_environment,
-)
+from svx.core.config import PROMPT_DIR, RECORDINGS_DIR, TRANSCRIPTS_DIR, setup_environment
 from svx.core.prompt import init_default_prompt_files
 from svx.core.storage import save_transcript
 from svx.providers import get_provider
 
 app = typer.Typer(help="SuperVoxtral CLI: record audio and send to transcription/chat providers.")
 console = Console()
+
+# Config subcommands (open config dir, show effective configuration)
+config_app = typer.Typer(help="Config utilities (open/show user configuration)")
+app.add_typer(config_app, name="config")
+
+
+@config_app.command("open")
+def config_open() -> None:
+    """
+    Open the user configuration directory in the platform's file manager.
+    """
+    path = config.USER_CONFIG_DIR
+    if not path.exists():
+        console.print(f"[yellow]User config directory does not exist:[/yellow] {path}")
+        console.print("It will be created on demand when saving config or prompts.")
+    try:
+        typer.launch(str(path))
+        console.print(f"Opened config directory: {path}")
+    except Exception as e:
+        console.print(f"[red]Failed to open config directory with system handler:[/red] {e}")
+        console.print(f"Please open it manually: {path}")
+
+
+@config_app.command("show")
+def config_show() -> None:
+    """
+    Display the effective configuration and relevant paths.
+    """
+    # Ensure base environment and directories are available (but do not change user state)
+    config.setup_environment(log_level="INFO")
+
+    # Load and apply user config (non-destructive to existing environment)
+    user_cfg = config.load_user_config() or {}
+    config.apply_user_env(user_cfg)
+
+    # Helper to mask secrets for display
+    def _mask_secret(val: str | None, keep: int = 4) -> str:
+        try:
+            if not val:
+                return "(not set)"
+            v = str(val)
+            if len(v) <= keep * 2 + 3:
+                return v[:keep] + "..." + v[-keep:]
+            return v[:keep] + "..." + v[-keep:]
+        except Exception:
+            return "(error)"
+
+    os_mod = __import__("os")
+
+    # Gather info
+    user_config_file = config.USER_CONFIG_FILE
+    user_prompt_file = config.USER_PROMPT_DIR / "user.md"
+    project_prompt_file = config.PROMPT_DIR / "user.md"
+
+    mistral_key = os_mod.environ.get("MISTRAL_API_KEY")
+    openai_key = os_mod.environ.get("OPENAI_API_KEY")
+
+    defaults_section = user_cfg.get("defaults") or {}
+    prompt_section = user_cfg.get("prompt") or {}
+
+    # Resolve prompt source (same logic as record command, but read-only)
+    resolved_prompt_source = None
+    resolved_prompt_excerpt = None
+    # 1) config prompt.text
+    if isinstance(prompt_section, dict) and prompt_section.get("text"):
+        resolved_prompt_source = "user config [prompt].text"
+        resolved_prompt_excerpt = str(prompt_section.get("text")).strip()
+    # 2) config prompt.file
+    if (
+        not resolved_prompt_source
+        and isinstance(prompt_section, dict)
+        and prompt_section.get("file")
+    ):
+        try:
+            p = Path(str(prompt_section.get("file"))).expanduser()
+            if p.exists():
+                resolved_prompt_source = f"user config file: {p}"
+                resolved_prompt_excerpt = p.read_text(encoding="utf-8").strip()
+        except Exception:
+            pass
+    # 3) user prompt dir
+    if not resolved_prompt_source and user_prompt_file.exists():
+        try:
+            t = user_prompt_file.read_text(encoding="utf-8").strip()
+            if t:
+                resolved_prompt_source = f"user prompt file: {user_prompt_file}"
+                resolved_prompt_excerpt = t
+        except Exception:
+            pass
+    # 4) project prompt
+    if not resolved_prompt_source and project_prompt_file.exists():
+        try:
+            t = project_prompt_file.read_text(encoding="utf-8").strip()
+            if t:
+                resolved_prompt_source = f"project prompt file: {project_prompt_file}"
+                resolved_prompt_excerpt = t
+        except Exception:
+            pass
+    if not resolved_prompt_source:
+        resolved_prompt_source = "fallback (builtin)"
+        resolved_prompt_excerpt = "What's in this audio?"
+
+    # Short excerpt
+    excerpt = (resolved_prompt_excerpt or "").replace("\n", " ")[:200]
+    if len(resolved_prompt_excerpt or "") > 200:
+        excerpt += "..."
+
+    # Print summary
+    console.print("[bold underline]SuperVoxtral - Configuration (effective)[/bold underline]")
+    console.print(
+        f"[cyan]User config file:[/cyan] {user_config_file} (exists={user_config_file.exists()})"
+    )
+    console.print(
+        f"[cyan]User prompt file:[/cyan] {user_prompt_file} (exists={user_prompt_file.exists()})"
+    )
+    console.print(
+        f"[cyan]Project prompt file:[/cyan] {project_prompt_file} (exists={project_prompt_file.exists()})"
+    )
+    console.print()
+    console.print("[bold]Environment variables[/bold]")
+    console.print(f"  MISTRAL_API_KEY: {_mask_secret(mistral_key)}")
+    console.print(f"  OPENAI_API_KEY: {_mask_secret(openai_key)}")
+    console.print()
+    console.print("[bold]User config sections (loaded from config.toml)[/bold]")
+    console.print(f"  defaults: {defaults_section or '(none)'}")
+    console.print(f"  prompt: {prompt_section or '(none)'}")
+    console.print()
+    console.print(f"[bold]Resolved prompt source:[/bold] {resolved_prompt_source}")
+    console.print(f"[bold]Prompt excerpt:[/bold] {excerpt}")
+
+
+@config_app.command("init")
+def config_init(
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing files"),
+) -> None:
+    """
+    Initialize the user configuration directory with an active config.toml and a prompt/user.md.
+    Does not overwrite existing files unless --force is specified.
+    """
+    user_dir = config.USER_CONFIG_DIR
+    user_prompt_dir = config.USER_PROMPT_DIR
+    user_dir.mkdir(parents=True, exist_ok=True)
+    user_prompt_dir.mkdir(parents=True, exist_ok=True)
+
+    cfg_path = config.USER_CONFIG_FILE
+    prompt_path = user_prompt_dir / "user.md"
+
+    example_toml = (
+        "[env]\n"
+        'MISTRAL_API_KEY = ""\n\n'
+        "[defaults]\n"
+        'provider = "mistral"\n'
+        'format = "mp3"\n'
+        'model = "voxtral-small-latest"\n'
+        'language = "fr"\n'
+        "rate = 16000\n"
+        "channels = 1\n"
+        'device = ""\n'
+        "keep_audio_files = false\n"
+        "copy = true\n"
+        'log_level = "INFO"\n\n'
+        "[prompt]\n"
+        "# prefer the packed user prompt file in the user config dir\n"
+        'file = "' + str(prompt_path) + '"\n'
+    )
+
+    example_prompt = (
+        "# SuperVoxtral user prompt\\n"
+        "Please transcribe the audio and provide a short summary in French.\\n"
+    )
+
+    wrote_any = False
+
+    if not cfg_path.exists() or force:
+        try:
+            cfg_path.write_text(example_toml, encoding="utf-8")
+            console.print(f"Wrote user config: {cfg_path}")
+            wrote_any = True
+        except Exception as e:
+            console.print(f"Failed to write config file {cfg_path}: {e}")
+
+    if not prompt_path.exists() or force:
+        try:
+            prompt_path.write_text(example_prompt, encoding="utf-8")
+            console.print(f"Wrote user prompt: {prompt_path}")
+            wrote_any = True
+        except Exception as e:
+            console.print(f"Failed to write prompt file {prompt_path}: {e}")
+
+    if not wrote_any:
+        console.print("User config already exists. Use --force to overwrite.")
 
 
 @app.command()
@@ -100,7 +288,53 @@ def record(
     """
     # Environment and directories
     setup_environment(log_level=log_level)
+
+    # Ensure both project and user prompt locations exist
     init_default_prompt_files(PROMPT_DIR)
+    # Ensure user config and prompt directories exist (create if missing).
+    config.USER_PROMPT_DIR.mkdir(parents=True, exist_ok=True)
+    config.USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Load user config and apply any environment vars it defines (without overwriting existing env)
+    user_config = config.load_user_config() or {}
+    config.apply_user_env(user_config)
+
+    # Allow user defaults to override the project's coded defaults, but only when the CLI
+    # value still equals the coded default. This preserves CLI precedence.
+    user_defaults: dict[str, Any] = {}
+    try:
+        user_defaults = user_config.get("defaults") or {}
+        if not isinstance(user_defaults, dict):
+            user_defaults = {}
+    except Exception:
+        user_defaults = {}
+
+    # Only override parameters that still equal the project's default values.
+    # (These literals must match the function signature defaults.)
+    if provider == "mistral" and "provider" in user_defaults:
+        provider = user_defaults["provider"]
+    if audio_format == "wav" and "format" in user_defaults:
+        audio_format = user_defaults["format"]
+    if model == "voxtral-small-latest" and "model" in user_defaults:
+        model = user_defaults["model"]
+    if language is None and "language" in user_defaults:
+        language = user_defaults["language"]
+    if rate == 16000 and "rate" in user_defaults:
+        rate = int(user_defaults["rate"])
+    if channels == 1 and "channels" in user_defaults:
+        channels = int(user_defaults["channels"])
+    if device is None and "device" in user_defaults:
+        device = user_defaults["device"] or None
+    if keep_audio_files is True and "keep_audio_files" in user_defaults:
+        keep_audio_files = bool(user_defaults["keep_audio_files"])
+    if outfile_prefix is None and "outfile_prefix" in user_defaults:
+        outfile_prefix = user_defaults["outfile_prefix"] or None
+    if copy is False and "copy" in user_defaults:
+        copy = bool(user_defaults["copy"])
+    if log_level == "INFO" and "log_level" in user_defaults:
+        log_level = str(user_defaults["log_level"])
+        # Reconfigure logging if user changed it
+        logging.getLogger().setLevel(logging.getLevelName(log_level))
 
     # Validate basic options
     if channels not in (1, 2):
@@ -141,20 +375,70 @@ def record(
             to_send_path = convert_audio(wav_path, audio_format)
             logging.info("Converted %s -> %s", wav_path, to_send_path)
 
-        # Resolve user prompt without concatenation:
-        # Priority: inline (--user-prompt) > file (--user-prompt-file) > prompt/user.md > default
+        # Resolve user prompt using priority:
+        # 1) inline (--user-prompt)
+        # 2) --user-prompt-file
+        # 3) user config inline prompt (config.toml -> [prompt].text)
+        # 4) user config prompt file (config.toml -> [prompt].file)
+        # 5) user prompt file in user config dir (~/.config/.../prompt/user.md)
+        # 6) project prompt/user.md
+        # 7) fallback literal
         final_user_prompt: str | None = None
 
+        # 1) inline CLI
         if user_prompt and user_prompt.strip():
             final_user_prompt = user_prompt.strip()
-        elif user_prompt_file:
+
+        # 2) explicit file CLI
+        if not final_user_prompt and user_prompt_file:
             try:
                 text = Path(user_prompt_file).read_text(encoding="utf-8").strip()
                 if text:
                     final_user_prompt = text
             except Exception:
                 logging.warning("Failed to read user prompt file: %s", user_prompt_file)
-        else:
+
+        # 3/4) from user config (text or file)
+        if not final_user_prompt:
+            try:
+                cfg_prompt_section = (user_config or {}).get("prompt") or {}
+                if isinstance(cfg_prompt_section, dict):
+                    # inline text in config
+                    cfg_text = cfg_prompt_section.get("text")
+                    if isinstance(cfg_text, str) and cfg_text.strip():
+                        final_user_prompt = cfg_text.strip()
+                    # file path from config (may be ~ expanded)
+                    if not final_user_prompt:
+                        cfg_file = cfg_prompt_section.get("file")
+                        if isinstance(cfg_file, str) and cfg_file.strip():
+                            try:
+                                cfg_path = Path(cfg_file).expanduser()
+                                if cfg_path.exists():
+                                    txt = cfg_path.read_text(encoding="utf-8").strip()
+                                    if txt:
+                                        final_user_prompt = txt
+                            except Exception:
+                                logging.debug(
+                                    "Failed reading prompt file from config: %s", cfg_file
+                                )
+            except Exception:
+                logging.debug("User config prompt processing failed.")
+
+        # 5) user prompt dir (USER_PROMPT_DIR / user.md)
+        if not final_user_prompt:
+            try:
+                user_prompt_file_path = config.USER_PROMPT_DIR / "user.md"
+                if user_prompt_file_path.exists():
+                    t = user_prompt_file_path.read_text(encoding="utf-8").strip()
+                    if t:
+                        final_user_prompt = t
+            except Exception:
+                logging.debug(
+                    "Could not read user prompt file in user prompt dir: %s", config.USER_PROMPT_DIR
+                )
+
+        # 6) project prompt dir fallback
+        if not final_user_prompt:
             fallback_file = PROMPT_DIR / "user.md"
             if fallback_file.exists():
                 try:
@@ -166,6 +450,7 @@ def record(
                         "Could not read fallback prompt file %s: error ignored", fallback_file
                     )
 
+        # 7) absolute fallback
         if not final_user_prompt:
             final_user_prompt = "What's in this audio?"
 
