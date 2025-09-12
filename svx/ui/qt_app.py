@@ -33,9 +33,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import svx.core.config as config
 from svx.core.audio import convert_audio, record_wav, timestamp
 from svx.core.clipboard import ClipboardError, copy_to_clipboard
-from svx.core.config import PROMPT_DIR, RECORDINGS_DIR, TRANSCRIPTS_DIR, setup_environment
 from svx.core.prompt import init_default_prompt_files
 from svx.core.storage import save_transcript
 from svx.providers import get_provider
@@ -94,21 +94,63 @@ class RecorderWorker(QObject):
     def _resolve_user_prompt(self) -> str:
         """
         Determine the final user prompt with the same priority as the CLI:
-        inline > file > PROMPT_DIR/user.md > default fallback.
+        inline > file > user_config[prompt.text] > user_config[prompt.file] >
+        USER_PROMPT_DIR/user.md > PROMPT_DIR/user.md > default fallback.
         """
         final_user_prompt: str | None = None
 
+        # 1) inline
         if self.user_prompt and self.user_prompt.strip():
             final_user_prompt = self.user_prompt.strip()
-        elif self.user_prompt_file:
+
+        # 2) explicit file
+        if not final_user_prompt and self.user_prompt_file:
             try:
                 text = Path(self.user_prompt_file).read_text(encoding="utf-8").strip()
                 if text:
                     final_user_prompt = text
             except Exception:
                 logging.warning("Failed to read user prompt file: %s", self.user_prompt_file)
-        else:
-            fallback_file = PROMPT_DIR / "user.md"
+
+        # 3/4) from user config (text or file)
+        if not final_user_prompt:
+            try:
+                user_cfg = config.load_user_config() or {}
+                prompt_section = user_cfg.get("prompt") or {}
+                if isinstance(prompt_section, dict):
+                    cfg_text = prompt_section.get("text")
+                    if isinstance(cfg_text, str) and cfg_text.strip():
+                        final_user_prompt = cfg_text.strip()
+                    if not final_user_prompt:
+                        cfg_file = prompt_section.get("file")
+                        if isinstance(cfg_file, str) and cfg_file.strip():
+                            p = Path(cfg_file).expanduser()
+                            if p.exists():
+                                try:
+                                    t = p.read_text(encoding="utf-8").strip()
+                                    if t:
+                                        final_user_prompt = t
+                                except Exception:
+                                    logging.debug(
+                                        "Failed to read prompt file from user config: %s", cfg_file
+                                    )
+            except Exception:
+                logging.debug("User config prompt processing failed.")
+
+        # 5) user prompt dir
+        if not final_user_prompt:
+            upath = config.USER_PROMPT_DIR / "user.md"
+            if upath.exists():
+                try:
+                    t = upath.read_text(encoding="utf-8").strip()
+                    if t:
+                        final_user_prompt = t
+                except Exception:
+                    logging.debug("Could not read user prompt file %s", upath)
+
+        # 6) project prompt dir
+        if not final_user_prompt:
+            fallback_file = config.PROMPT_DIR / "user.md"
             if fallback_file.exists():
                 try:
                     text = fallback_file.read_text(encoding="utf-8").strip()
@@ -117,6 +159,7 @@ class RecorderWorker(QObject):
                 except Exception:
                     logging.debug("Could not read fallback prompt file %s", fallback_file)
 
+        # 7) default
         if not final_user_prompt:
             final_user_prompt = "What's in this audio?"
         return final_user_prompt
@@ -132,7 +175,7 @@ class RecorderWorker(QObject):
         - optionally delete audio files
         """
         base = self.outfile_prefix or f"rec_{timestamp()}"
-        wav_path = RECORDINGS_DIR / f"{base}.wav"
+        wav_path = config.RECORDINGS_DIR / f"{base}.wav"
         to_send_path = wav_path
 
         try:
@@ -165,7 +208,7 @@ class RecorderWorker(QObject):
             raw = result["raw"]
 
             # 4) Save outputs
-            save_transcript(TRANSCRIPTS_DIR, base, self.provider, text, raw)
+            save_transcript(config.TRANSCRIPTS_DIR, base, self.provider, text, raw)
 
             # 5) Copy to clipboard
             if self.do_copy:
@@ -218,8 +261,8 @@ class RecorderWindow(QWidget):
         super().__init__()
 
         # Environment and prompt files
-        setup_environment(log_level=log_level)
-        init_default_prompt_files(PROMPT_DIR)
+        config.setup_environment(log_level=log_level)
+        init_default_prompt_files(config.PROMPT_DIR)
 
         # Window basics
         self.setWindowTitle("SuperVoxtral")
@@ -319,6 +362,35 @@ def run_gui(
     Args mirror the CLI options, with defaults matching:
       --provider mistral --format opus --copy --no-keep-audio-files
     """
+    # Apply environment and user defaults before launching the app
+    config.setup_environment(log_level=log_level)
+    user_cfg = config.load_user_config() or {}
+    config.apply_user_env(user_cfg)
+
+    user_defaults = user_cfg.get("defaults") or {}
+    if provider == "mistral" and "provider" in user_defaults:
+        provider = user_defaults["provider"]
+    if audio_format == "opus" and "format" in user_defaults:
+        audio_format = user_defaults["format"]
+    if model == "voxtral-small-latest" and "model" in user_defaults:
+        model = user_defaults["model"]
+    if language is None and "language" in user_defaults:
+        language = user_defaults["language"]
+    if rate == 16000 and "rate" in user_defaults:
+        rate = int(user_defaults["rate"])
+    if channels == 1 and "channels" in user_defaults:
+        channels = int(user_defaults["channels"])
+    if device is None and "device" in user_defaults:
+        device = user_defaults["device"] or None
+    if keep_audio_files is False and "keep_audio_files" in user_defaults:
+        keep_audio_files = bool(user_defaults["keep_audio_files"])
+    if outfile_prefix is None and "outfile_prefix" in user_defaults:
+        outfile_prefix = user_defaults["outfile_prefix"] or None
+    if do_copy is True and "copy" in user_defaults:
+        do_copy = bool(user_defaults["copy"])
+    if log_level == "INFO" and "log_level" in user_defaults:
+        log_level = str(user_defaults["log_level"])
+
     app = QApplication.instance() or QApplication([])
     window = RecorderWindow(
         provider=provider,
