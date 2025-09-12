@@ -203,7 +203,7 @@ class RecorderWindow(QWidget):
         self,
         provider: str = "mistral",
         audio_format: str = "opus",
-        model: str = "voxtral-mini-latest",
+        model: str = "voxtral-small-latest",
         language: str | None = None,
         rate: int = 16000,
         channels: int = 1,
@@ -301,7 +301,7 @@ class RecorderWindow(QWidget):
 def run_gui(
     provider: str = "mistral",
     audio_format: str = "opus",
-    model: str = "voxtral-mini-latest",
+    model: str = "voxtral-small-latest",
     language: str | None = None,
     rate: int = 16000,
     channels: int = 1,

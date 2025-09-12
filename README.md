@@ -188,7 +188,7 @@ python -m svx.cli --provider mistral --format mp3 --prompt "..."
 ## Provider details
 
 ### Mistral Voxtral (chat with audio)
-- Model: `voxtral-mini-latest` by default (configurable)
+- Model: `voxtral-small-latest` by default (configurable)
 - API: `mistralai` Python client
 - Request structure:
   - Messages with `content` array containing:

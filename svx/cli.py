@@ -52,7 +52,7 @@ def record(
         help="Path to a text file containing the user prompt.",
     ),
     model: str = typer.Option(
-        "voxtral-mini-latest",
+        "voxtral-small-latest",
         "--model",
         help="Model name for the provider (for Mistral Voxtral).",
     ),
@@ -259,7 +259,7 @@ def gui(
         help="Path to a text file containing the user prompt.",
     ),
     model: str = typer.Option(
-        "voxtral-mini-latest",
+        "voxtral-small-latest",
         "--model",
         help="Model name for the provider (for Mistral Voxtral).",
     ),

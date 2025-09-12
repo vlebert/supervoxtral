@@ -99,7 +99,7 @@ class MistralProvider(Provider):
         self,
         audio_path: Path,
         user_prompt: str | None,
-        model: str | None = "voxtral-mini-latest",
+        model: str | None = "voxtral-small-latest",
         language: str | None = None,  # Currently unused by Mistral Voxtral
     ) -> TranscriptionResult:
         """
@@ -109,7 +109,7 @@ class MistralProvider(Provider):
             audio_path: Path to wav/mp3/opus file to send.
             user_prompt: Optional user prompt to include with the audio.
 
-            model: Voxtral model identifier (default: "voxtral-mini-latest").
+            model: Voxtral model identifier (default: "voxtral-small-latest").
             language: Currently unused; kept for Provider interface compatibility.
 
         Returns:
@@ -145,7 +145,7 @@ class MistralProvider(Provider):
 
         # Execute request
         client = Mistral(api_key=api_key)
-        model_name = model or "voxtral-mini-latest"
+        model_name = model or "voxtral-small-latest"
         logging.info(
             "Calling Mistral model=%s with audio=%s (%s)",
             model_name,
