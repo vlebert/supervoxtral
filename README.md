@@ -13,7 +13,7 @@ MVP scope:
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.11+
 - macOS (primary target for now; Linux/Windows should be fine but not tested yet)
 - ffmpeg (for MP3/Opus conversions)
   - macOS: `brew install ffmpeg`
@@ -110,20 +110,28 @@ Make sure your virtual environment is activated and the project is installed (`p
 
 General command form:
 ```
-svx [OPTIONS]
+svx record [OPTIONS]
 ```
+
+Note: the CLI now exposes a single recording entrypoint. Use `svx record --gui` to launch the GUI frontend.
 
 Planned MVP commands:
 
 - Record with Mistral Voxtral (chat with audio) and a prompt:
   ```
-  svx --provider mistral --format mp3 --prompt "What's in this file?"
+  svx record --provider mistral --format mp3 --prompt "What's in this file?"
   ```
   Tip: you can copy the final transcript to your system clipboard by adding the `--copy` flag. This is useful to quickly paste the result into another app or note.
   Example:
   ```
-  svx --provider mistral --format mp3 --prompt "What's in this file?" --copy
+  svx record --provider mistral --format mp3 --prompt "What's in this file?" --copy
   ```
+
+  To start the GUI frontend:
+  ```
+  svx record --gui
+  ```
+  The CLI defaults have been unified to favour the previous GUI defaults (e.g. `--format opus`, `--copy` enabled, and `--no-keep-audio-files` by default). The final effective values still respect the precedence: CLI explicit > user config defaults (config.toml) > built-in defaults.
 
 ### Advanced prompt management
 
@@ -180,7 +188,7 @@ Additional useful options (to be implemented as flags):
 
 Alternative invocation (without console script):
 ```
-python -m svx.cli --provider mistral --format mp3 --prompt "..."
+python -m svx.cli record --provider mistral --format mp3 --prompt "..."
 ```
 
 ---
