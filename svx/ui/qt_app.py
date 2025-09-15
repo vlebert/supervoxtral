@@ -364,7 +364,8 @@ class RecorderWindow(QWidget):
 
         # Apply stylesheet to the application for consistent appearance
         app = QApplication.instance()
-        if app is not None:
+        # Narrow the type to QApplication before accessing styleSheet/setStyleSheet
+        if isinstance(app, QApplication):
             # Merge existing stylesheet conservatively by appending our theme
             existing = app.styleSheet() or ""
             app.setStyleSheet(existing + DARK_MONO_STYLESHEET)
@@ -499,8 +500,10 @@ def run_gui(
     app = QApplication.instance() or QApplication([])
 
     # Ensure our stylesheet is applied as early as possible
-    existing = app.styleSheet() or ""
-    app.setStyleSheet(existing + DARK_MONO_STYLESHEET)
+    # Narrow runtime type before calling QWidget-specific methods to satisfy static checkers.
+    if isinstance(app, QApplication):
+        existing = app.styleSheet() or ""
+        app.setStyleSheet(existing + DARK_MONO_STYLESHEET)
 
     window = RecorderWindow(
         provider=provider,
