@@ -14,7 +14,8 @@ Design:
   - macOS: ~/Library/Application Support/SuperVoxtral
   - Windows: %APPDATA%/SuperVoxtral
 
-- User config file: config.toml (TOML). For Python 3.11+ `tomllib` is used; for 3.10 a fallback to `tomli` would be expected
+- User config file: config.toml (TOML). For Python 3.11+, `tomllib` is used;
+  for 3.10, a fallback to `tomli` would be expected
   (the project should add `tomli` to dependencies for 3.10).
 
 This module aims to remain small and import-safe.
@@ -25,8 +26,9 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Final, Mapping
+from typing import Any, Final
 
 # Use stdlib tomllib (Python >= 3.11 required by project)
 import tomllib

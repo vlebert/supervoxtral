@@ -136,7 +136,8 @@ def config_show() -> None:
         f"[cyan]User prompt file:[/cyan] {user_prompt_file} (exists={user_prompt_file.exists()})"
     )
     console.print(
-        f"[cyan]Project prompt file:[/cyan] {project_prompt_file} (exists={project_prompt_file.exists()})"
+        f"[cyan]Project prompt file:[/cyan] {project_prompt_file} "
+        f"(exists={project_prompt_file.exists()})"
     )
     console.print()
     console.print("[bold]Environment variables[/bold]")
@@ -286,7 +287,8 @@ def record(
     Record audio from the microphone and send it to the selected provider.
 
     Use `--gui` to launch the GUI frontend. Priority for option resolution:
-    1) CLI explicit > 2) defaults in user config (config.toml) > 3) unified CLI defaults (which prefer GUI defaults).
+    1) CLI explicit > 2) defaults in user config (config.toml) >
+    3) unified CLI defaults (which prefer GUI defaults).
     Flow:
     - Records WAV until you press Enter (CLI mode).
     - Optionally converts to MP3/Opus.

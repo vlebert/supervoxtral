@@ -128,7 +128,7 @@ def load_user_config() -> ConfigDict:
         return get_default_config()
 
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             config_data = toml.load(f)
 
         # Merge with defaults to ensure all keys exist
@@ -202,7 +202,9 @@ def init_user_config() -> tuple[Path, Path]:
 
     # Create default prompt file if it doesn't exist
     if not prompt_path.exists():
-        default_prompt = """You will be cleaning and formatting audio transcriptions from voice dictations. Your goal is to produce a clean, well-formatted written transcription while preserving the speaker's tone and phrasing style.
+        default_prompt = """You will be cleaning and formatting audio transcriptions from voice
+dictations. Your goal is to produce a clean, well-formatted written transcription
+while preserving the speaker's tone and phrasing style.
 
 First, here is a business lexicon that contains technical terms, acronyms, and
 industry-specific vocabulary that may appear in the audio:
