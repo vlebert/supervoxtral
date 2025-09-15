@@ -1,20 +1,18 @@
 """
 Minimal PySide6 GUI for SuperVoxtral.
 
-This module provides a tiny always-on-top window with a single "Stop" button.
+This module provides a tiny always-on-top frameless window with a single "Stop" button.
 Behavior:
 - Starts recording immediately on launch.
-- When "Stop" is pressed, stops recording, converts to desired format (default: opus),
+- When "Stop" is pressed (or Esc), stops recording, converts to desired format (default: opus),
   sends to the transcription provider (default: mistral), copies the result to clipboard,
   optionally deletes audio files, and then exits.
 
-Dependencies:
-- PySide6
-- Existing SuperVoxtral core modules (audio, storage, providers, etc.)
-
-Exports:
-- RecorderWindow: the tiny window widget
-- run_gui: convenience launcher to start the Qt application
+UI changes in this file:
+- Frameless window (no native title bar).
+- Draggable window via mouse press/move on the widget.
+- Monospace dark stylesheet applied to the application.
+- Esc shortcut bound to Stop.
 """
 
 from __future__ import annotations
@@ -23,7 +21,8 @@ import logging
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, QTimer, Signal
+from PySide6.QtCore import QObject, QPoint, Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QLabel,
@@ -41,6 +40,48 @@ from svx.core.storage import save_transcript
 from svx.providers import get_provider
 
 __all__ = ["RecorderWindow", "run_gui"]
+
+
+# Simple dark monospace stylesheet
+DARK_MONO_STYLESHEET = """
+/* Base window */
+QWidget {
+    background-color: #0f1113;
+    color: #e6eef3;
+    font-family: "JetBrains Mono", "Fira Code", "Menlo", "Courier New", monospace;
+    font-size: 11pt;
+}
+
+/* Status label */
+QLabel {
+    color: #cfe8ff;
+    padding: 6px;
+}
+
+/* Stop button */
+QPushButton {
+    background-color: #1f6feb;
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 14px;
+    margin: 6px;
+    min-width: 80px;
+}
+QPushButton:disabled {
+    background-color: #274a7a;
+    color: #9fb8e6;
+}
+QPushButton:hover {
+    background-color: #2a78ff;
+}
+
+/* Small window border effect (subtle) */
+QWidget#recorder_window {
+    border: 1px solid #203040;
+    border-radius: 8px;
+}
+"""
 
 
 class RecorderWorker(QObject):
@@ -237,9 +278,12 @@ class RecorderWorker(QObject):
 
 class RecorderWindow(QWidget):
     """
-    Minimal always-on-top window with a single Stop button.
+    Frameless always-on-top window with a single Stop button.
 
     Launching this window will immediately start the recording in a background thread.
+
+    Window can be dragged by clicking anywhere on the widget background.
+    Pressing Esc triggers Stop.
     """
 
     def __init__(
@@ -265,18 +309,36 @@ class RecorderWindow(QWidget):
         init_default_prompt_files(config.PROMPT_DIR)
 
         # Window basics
+        self.setObjectName("recorder_window")
         self.setWindowTitle("SuperVoxtral")
+        # Frameless and always on top
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.setMinimumWidth(260)
+
+        # For dragging
+        self._drag_active = False
+        self._drag_pos = QPoint(0, 0)
 
         # UI layout
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
+
         self._status_label = QLabel("Recording... Press Stop to finish")
+        self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._status_label)
 
         self._stop_btn = QPushButton("Stop")
         self._stop_btn.clicked.connect(self._on_stop_clicked)
-        layout.addWidget(self._stop_btn)
+        layout.addWidget(self._stop_btn, 0, Qt.AlignmentFlag.AlignCenter)
+
+        # Keyboard shortcut: Esc to stop
+        stop_action = QAction(self)
+        stop_action.setShortcut(QKeySequence.StandardKey.Cancel)  # Esc
+        stop_action.triggered.connect(self._on_stop_clicked)
+        self.addAction(stop_action)
 
         # Background worker
         self._worker = RecorderWorker(
@@ -299,6 +361,16 @@ class RecorderWindow(QWidget):
         self._worker.status.connect(self._on_status)
         self._worker.done.connect(self._on_done)
         self._worker.error.connect(self._on_error)
+
+        # Apply stylesheet to the application for consistent appearance
+        app = QApplication.instance()
+        if app is not None:
+            # Merge existing stylesheet conservatively by appending our theme
+            existing = app.styleSheet() or ""
+            app.setStyleSheet(existing + DARK_MONO_STYLESHEET)
+        else:
+            # If no app exists yet, we'll rely on run_gui to set the stylesheet.
+            pass
 
         # Start recording immediately
         self._thread.start()
@@ -339,6 +411,39 @@ class RecorderWindow(QWidget):
         self._stop_btn.setEnabled(False)
         self._status_label.setText("Stopping...")
         self._worker.stop()
+
+    # --- Drag handling for frameless window ---
+    def mousePressEvent(self, event) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_active = True
+            # global position minus top-left corner gives offset
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # type: ignore[override]
+        if self._drag_active and event.buttons() & Qt.MouseButton.LeftButton:
+            new_pos = event.globalPosition().toPoint() - self._drag_pos
+            self.move(new_pos)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_active = False
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+
+    # Support pressing Esc as an alternative to clicking Stop
+    def keyPressEvent(self, event) -> None:  # type: ignore[override]
+        # Qt.Key_Escape is a safety stop
+        if event.key() == Qt.Key.Key_Escape:
+            self._on_stop_clicked()
+        else:
+            super().keyPressEvent(event)
 
 
 def run_gui(
@@ -392,6 +497,11 @@ def run_gui(
         log_level = str(user_defaults["log_level"])
 
     app = QApplication.instance() or QApplication([])
+
+    # Ensure our stylesheet is applied as early as possible
+    existing = app.styleSheet() or ""
+    app.setStyleSheet(existing + DARK_MONO_STYLESHEET)
+
     window = RecorderWindow(
         provider=provider,
         audio_format=audio_format,
