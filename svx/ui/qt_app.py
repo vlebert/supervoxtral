@@ -84,6 +84,90 @@ QWidget#recorder_window {
 """
 
 
+class WaveformWidget(QWidget):
+    """
+    Simple autonomous waveform-like widget.
+    This widget does not read audio; it animates a smooth sinusoidal/breathing
+    waveform to indicate recording activity. It is lightweight and self-contained.
+    """
+
+    def __init__(self, parent=None, height: int = 64) -> None:
+        super().__init__(parent)
+        self.setMinimumHeight(height)
+        self.setMaximumHeight(height)
+        self.phase: float = 0.0
+        self.amp: float = 0.18  # base amplitude (increased for stronger motion)
+        self._target_amp: float = 0.12
+        self._tick_timer = QTimer(self)
+        self._tick_timer.setInterval(16)  # ~60 FPS
+        self._tick_timer.timeout.connect(self._on_tick)
+        self._tick_timer.start()
+        # lazily import time to avoid top-level dependency issues
+        import time as _time
+
+        self._last_time = _time.time()
+
+    def _on_tick(self) -> None:
+        # advance phase and animate a subtle breathing amplitude
+        import math as _math
+        import time as _time
+
+        now = _time.time()
+        dt = max(0.0, now - self._last_time)
+        self._last_time = now
+        self.phase += 10.0 * dt  # speed factor (increased for faster motion)
+
+        # simpler breathing target using a sine on phase
+        # increase breathing depth and slightly faster breathing frequency
+        self._target_amp = 0.12 + 0.12 * (0.5 + 0.5 * _math.sin(self.phase * 0.35))
+
+        # simple lerp towards target amplitude
+        lerp_alpha = 0.06
+        self.amp = (1.0 - lerp_alpha) * self.amp + lerp_alpha * self._target_amp
+        self.update()
+
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        import math as _math
+
+        from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+
+        w = self.width()
+        h = self.height()
+        center_y = h / 2.0
+
+        p = QPainter(self)
+        # Use RenderHint enum for compatibility with type checkers
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # background is handled by stylesheet; draw a subtle inner rect
+        bg_color = QColor(20, 24, 28, 120)
+        p.fillRect(0, 0, w, h, bg_color)
+
+        # waveform color
+        wave_color = QColor(90, 200, 255, 220)
+        pen = QPen(wave_color)
+        pen.setWidthF(2.0)
+        p.setPen(pen)
+
+        path = QPainterPath()
+        samples = max(64, max(1, w // 3))
+        # larger visual amplitude for a more noticeable waveform
+        amplitude = (h / 1.8) * self.amp
+        # draw a sin-based waveform with phase offset for motion
+        for i in range(samples):
+            x = (i / (samples - 1)) * w if samples > 1 else 0
+            angle = (i / samples) * 4.0 * 3.14159 + self.phase
+            # combine fundamental and harmonic for a richer shape
+            y = center_y + amplitude * (
+                0.9 * (0.6 * _math.sin(angle) + 0.4 * _math.sin(2.3 * angle))
+            )
+            if i == 0:
+                path.moveTo(x, y)
+            else:
+                path.lineTo(x, y)
+
+        p.drawPath(path)
+
+
 class RecorderWorker(QObject):
     """
     Worker object running the audio/transcription pipeline in a background thread.
@@ -325,6 +409,10 @@ class RecorderWindow(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(6)
+
+        # Animated waveform (autonomous, not yet linked to audio)
+        self._waveform = WaveformWidget(self, height=64)
+        layout.addWidget(self._waveform)
 
         self._status_label = QLabel("Recording... Press Stop to finish")
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
