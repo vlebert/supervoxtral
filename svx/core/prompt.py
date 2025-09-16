@@ -17,6 +17,7 @@ from pathlib import Path
 __all__ = [
     "read_text_file",
     "resolve_prompt",
+    "resolve_user_prompt",
     "init_default_prompt_files",
 ]
 
@@ -58,6 +59,91 @@ def resolve_prompt(inline: str | None, file_path: Path | None) -> str | None:
 
     combined = "\n\n".join(parts).strip()
     return combined if combined else None
+
+
+def resolve_user_prompt(
+    user_cfg: dict[str, object] | None,
+    inline: str | None,
+    file: Path | None,
+    user_prompt_dir: Path,
+    project_prompt_dir: Path,
+) -> str:
+    """
+    Resolve the effective user prompt from multiple sources, by priority:
+
+    1) inline text (CLI --user-prompt)
+    2) explicit file (CLI --user-prompt-file)
+    3) user config inline text (user_cfg['prompt']['text'])
+    4) user config file path (user_cfg['prompt']['file'])
+    5) user prompt dir file (user_prompt_dir / 'user.md')
+    6) project prompt dir fallback (project_prompt_dir / 'user.md')
+    7) literal fallback: "What's in this audio?"
+
+    Returns the first non-empty string after stripping.
+    """
+
+    def _strip(val: str | None) -> str:
+        return val.strip() if isinstance(val, str) else ""
+
+    def _read(p: Path | None) -> str:
+        if not p:
+            return ""
+        try:
+            return read_text_file(p).strip()
+        except Exception:
+            logging.warning("Failed to read user prompt file: %s", p)
+            return ""
+
+    def _from_user_cfg() -> str:
+        try:
+            cfg_prompt = (user_cfg or {}).get("prompt") if isinstance(user_cfg, dict) else None
+            if not isinstance(cfg_prompt, dict):
+                return ""
+            cfg_text = cfg_prompt.get("text")
+            if isinstance(cfg_text, str) and cfg_text.strip():
+                return cfg_text.strip()
+            cfg_file = cfg_prompt.get("file")
+            if isinstance(cfg_file, str) and cfg_file.strip():
+                return read_text_file(Path(cfg_file).expanduser()).strip()
+        except Exception:
+            logging.debug("User config prompt processing failed.", exc_info=True)
+        return ""
+
+    def _from_user_prompt_dir() -> str:
+        try:
+            upath = Path(user_prompt_dir) / "user.md"
+            if upath.exists():
+                return read_text_file(upath).strip()
+        except Exception:
+            logging.debug("Could not read user prompt in user prompt dir: %s", user_prompt_dir)
+        return ""
+
+    def _from_project_prompt_dir() -> str:
+        try:
+            ppath = Path(project_prompt_dir) / "user.md"
+            if ppath.exists():
+                return read_text_file(ppath).strip()
+        except Exception:
+            logging.debug("Could not read project fallback prompt: %s", project_prompt_dir)
+        return ""
+
+    suppliers = [
+        lambda: _strip(inline),
+        lambda: _read(file),
+        _from_user_cfg,
+        _from_user_prompt_dir,
+        _from_project_prompt_dir,
+    ]
+
+    for supplier in suppliers:
+        try:
+            val = supplier()
+            if val:
+                return val
+        except Exception as e:
+            logging.debug("Prompt supplier failed: %s", e)
+
+    return "What's in this audio?"
 
 
 def init_default_prompt_files(prompt_dir: Path) -> None:

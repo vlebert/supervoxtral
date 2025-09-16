@@ -14,7 +14,7 @@ import svx.core.config as config
 from svx.core.audio import convert_audio, record_wav, timestamp
 from svx.core.clipboard import copy_to_clipboard
 from svx.core.config import PROMPT_DIR, RECORDINGS_DIR, TRANSCRIPTS_DIR, setup_environment
-from svx.core.prompt import init_default_prompt_files
+from svx.core.prompt import init_default_prompt_files, resolve_user_prompt
 from svx.core.storage import save_transcript
 from svx.providers import get_provider
 
@@ -406,84 +406,13 @@ def record(
             to_send_path = convert_audio(wav_path, audio_format)
             logging.info("Converted %s -> %s", wav_path, to_send_path)
 
-        # Resolve user prompt using priority:
-        # 1) inline (--user-prompt)
-        # 2) --user-prompt-file
-        # 3) user config inline prompt (config.toml -> [prompt].text)
-        # 4) user config prompt file (config.toml -> [prompt].file)
-        # 5) user prompt file in user config dir (~/.config/.../prompt/user.md)
-        # 6) project prompt/user.md
-        # 7) fallback literal
-        final_user_prompt: str | None = None
-
-        # 1) inline CLI
-        if user_prompt and user_prompt.strip():
-            final_user_prompt = user_prompt.strip()
-
-        # 2) explicit file CLI
-        if not final_user_prompt and user_prompt_file:
-            try:
-                text = Path(user_prompt_file).read_text(encoding="utf-8").strip()
-                if text:
-                    final_user_prompt = text
-            except Exception:
-                logging.warning("Failed to read user prompt file: %s", user_prompt_file)
-
-        # 3/4) from user config (text or file)
-        if not final_user_prompt:
-            try:
-                cfg_prompt_section = (user_config or {}).get("prompt") or {}
-                if isinstance(cfg_prompt_section, dict):
-                    # inline text in config
-                    cfg_text = cfg_prompt_section.get("text")
-                    if isinstance(cfg_text, str) and cfg_text.strip():
-                        final_user_prompt = cfg_text.strip()
-                    # file path from config (may be ~ expanded)
-                    if not final_user_prompt:
-                        cfg_file = cfg_prompt_section.get("file")
-                        if isinstance(cfg_file, str) and cfg_file.strip():
-                            try:
-                                cfg_path = Path(cfg_file).expanduser()
-                                if cfg_path.exists():
-                                    txt = cfg_path.read_text(encoding="utf-8").strip()
-                                    if txt:
-                                        final_user_prompt = txt
-                            except Exception:
-                                logging.debug(
-                                    "Failed reading prompt file from config: %s", cfg_file
-                                )
-            except Exception:
-                logging.debug("User config prompt processing failed.")
-
-        # 5) user prompt dir (USER_PROMPT_DIR / user.md)
-        if not final_user_prompt:
-            try:
-                user_prompt_file_path = config.USER_PROMPT_DIR / "user.md"
-                if user_prompt_file_path.exists():
-                    t = user_prompt_file_path.read_text(encoding="utf-8").strip()
-                    if t:
-                        final_user_prompt = t
-            except Exception:
-                logging.debug(
-                    "Could not read user prompt file in user prompt dir: %s", config.USER_PROMPT_DIR
-                )
-
-        # 6) project prompt dir fallback
-        if not final_user_prompt:
-            fallback_file = PROMPT_DIR / "user.md"
-            if fallback_file.exists():
-                try:
-                    text = fallback_file.read_text(encoding="utf-8").strip()
-                    if text:
-                        final_user_prompt = text
-                except Exception:
-                    logging.debug(
-                        "Could not read fallback prompt file %s: error ignored", fallback_file
-                    )
-
-        # 7) absolute fallback
-        if not final_user_prompt:
-            final_user_prompt = "What's in this audio?"
+        final_user_prompt: str = resolve_user_prompt(
+            user_config,
+            user_prompt,
+            user_prompt_file,
+            config.USER_PROMPT_DIR,
+            PROMPT_DIR,
+        )
 
         # Provider handling via registry
         try:
