@@ -50,3 +50,10 @@ ignore = []
 
 [tool.hatch.build.targets.wheel]
 packages = ["svx"]
+
+[tool.basedpyright]
+typeCheckingMode = "standard"  # "basic" | "standard" | "strict" (défaut: "standard")
+# reportUnknownArgumentType = false
+# reportUnknownVariableType = false
+# reportUnusedCallResult = false
+# reportUnannotatedClassAttribute = false
