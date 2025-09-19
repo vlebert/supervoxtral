@@ -1,9 +1,9 @@
 """
 Core configuration utilities for SuperVoxtral.
 
-- Loads environment variables from a local .env if present.
+
 - Resolves a per-user configuration directory (cross-platform).
-- Can load a user config TOML file and inject env vars from it (without overwriting existing env).
+
 - Exposes project path constants (ROOT_DIR, RECORDINGS_DIR, TRANSCRIPTS_DIR, LOGS_DIR, PROMPT_DIR)
   as well as user-scoped paths (USER_CONFIG_DIR, USER_PROMPT_DIR).
 - Configures logging and ensures required directories exist.
@@ -26,13 +26,11 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Final
 
 # Use stdlib tomllib (Python >= 3.11 required by project)
 import tomllib
-from dotenv import load_dotenv
 
 # Project paths (relative to current working directory)
 ROOT_DIR: Final[Path] = Path.cwd()
@@ -116,15 +114,13 @@ def _configure_logging(level: str) -> None:
 
 def setup_environment(log_level: str = "INFO") -> None:
     """
-    Load environment variables, ensure project directories exist, and configure logging.
+    Ensure project directories exist and configure logging.
 
-    - Loads .env file if present (does not override already-set environment variables).
+
     - Creates recordings/, transcripts/, logs/, prompt/ directories as needed.
     - Ensures user prompt dir exists (but does not overwrite user files).
     - Configures logging according to `log_level`.
     """
-    # Load env from .env (non-destructive to existing env)
-    load_dotenv()
 
     # Ensure output directories exist
     RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -159,8 +155,6 @@ def load_user_config() -> dict[str, Any]:
     If the file does not exist or cannot be parsed, returns an empty dict.
 
     Expected layout (example):
-    [env]
-    MISTRAL_API_KEY = "xxx"
 
     [defaults]
     provider = "mistral"
@@ -184,25 +178,6 @@ def load_user_config() -> dict[str, Any]:
     return _read_toml(USER_CONFIG_FILE)
 
 
-def apply_user_env(user_config: Mapping[str, Any]) -> None:
-    """
-    Apply environment variables from user_config['env'] into os.environ only when not already set.
-
-    Does not overwrite existing environment variables.
-    """
-    env = user_config.get("env")
-    if not isinstance(env, Mapping):
-        return
-    for k, v in env.items():
-        if not isinstance(k, str):
-            continue
-        if k in os.environ:
-            continue
-        if v is None:
-            continue
-        os.environ[k] = str(v)
-
-
 __all__ = [
     "ROOT_DIR",
     "RECORDINGS_DIR",
@@ -214,5 +189,4 @@ __all__ = [
     "USER_CONFIG_FILE",
     "setup_environment",
     "load_user_config",
-    "apply_user_env",
 ]

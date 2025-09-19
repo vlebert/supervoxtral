@@ -5,7 +5,7 @@ This module provides a concrete Provider that uses Mistral's
 "chat with audio" capability (Voxtral) to process audio and return text.
 
 Requirements:
-- Environment variable MISTRAL_API_KEY set to a valid API key.
+- User config must define [providers.mistral].api_key in config.toml.
 - Package 'mistralai' installed and importable.
 
 The provider composes messages with:
@@ -19,9 +19,10 @@ from __future__ import annotations
 import base64
 import json
 import logging
-import os
 from pathlib import Path
 from typing import Any, cast
+
+import svx.core.config as config
 
 from .base import Provider, ProviderError, TranscriptionResult
 
@@ -118,9 +119,13 @@ class MistralProvider(Provider):
         Raises:
             ProviderError: for expected configuration/import errors.
         """
-        api_key = os.environ.get("MISTRAL_API_KEY")
+        # Read API key from user config (config.toml): [providers.mistral].api_key
+        user_cfg = config.load_user_config() or {}
+        providers = user_cfg.get("providers") or {}
+        mistral_cfg = providers.get("mistral") or {}
+        api_key = str(mistral_cfg.get("api_key") or "")
         if not api_key:
-            raise ProviderError("MISTRAL_API_KEY is not set in environment.")
+            raise ProviderError("Missing providers.mistral.api_key in user config (config.toml).")
 
         try:
             from mistralai import (

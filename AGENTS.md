@@ -61,7 +61,7 @@ svx record --prompt "What's in this file?"
 - **Docstrings**: Google-style with clear purpose/dependencies/`__all__` exports
 
 ## Security
-- API keys in `.env` (gitignored)
-- Required: `MISTRAL_API_KEY`
-- Optional: `OPENAI_API_KEY`
+- API keys are configured in the user config file (`config.toml`), under provider-specific sections.
+- Mistral: define `[providers.mistral].api_key`
+- Environment variables are not used for API keys.
 - Validate user inputs

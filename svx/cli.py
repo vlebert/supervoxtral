@@ -53,7 +53,6 @@ def config_show() -> None:
 
     # Load and apply user config (non-destructive to existing environment)
     user_cfg = config.load_user_config() or {}
-    config.apply_user_env(user_cfg)
 
     # Helper to mask secrets for display
     def _mask_secret(val: str | None, keep: int = 4) -> str:
@@ -67,15 +66,14 @@ def config_show() -> None:
         except Exception:
             return "(error)"
 
-    os_mod = __import__("os")
+    providers_section = user_cfg.get("providers") or {}
+    mistral_section = providers_section.get("mistral") or {}
+    mistral_key = str(mistral_section.get("api_key") or "")
 
     # Gather info
     user_config_file = config.USER_CONFIG_FILE
     user_prompt_file = config.USER_PROMPT_DIR / "user.md"
     project_prompt_file = config.PROMPT_DIR / "user.md"
-
-    mistral_key = os_mod.environ.get("MISTRAL_API_KEY")
-    openai_key = os_mod.environ.get("OPENAI_API_KEY")
 
     defaults_section = user_cfg.get("defaults") or {}
     prompt_section = user_cfg.get("prompt") or {}
@@ -140,9 +138,8 @@ def config_show() -> None:
         f"(exists={project_prompt_file.exists()})"
     )
     console.print()
-    console.print("[bold]Environment variables[/bold]")
-    console.print(f"  MISTRAL_API_KEY: {_mask_secret(mistral_key)}")
-    console.print(f"  OPENAI_API_KEY: {_mask_secret(openai_key)}")
+    console.print("[bold]Provider credentials (from config.toml)[/bold]")
+    console.print(f"  providers.mistral.api_key: {_mask_secret(mistral_key)}")
     console.print()
     console.print("[bold]User config sections (loaded from config.toml)[/bold]")
     console.print(f"  defaults: {defaults_section or '(none)'}")
@@ -180,10 +177,9 @@ def config_init(
         "#     --outfile-prefix (one-off output naming)\n"
         "#\n"
         "# Authentication:\n"
-        "# - API keys can be defined in [env] below OR via your system environment.\n"
-        "# - If a variable already exists in the environment, the TOML value will not overwrite it.\n"
-        "[env]\n"
-        '# MISTRAL_API_KEY = ""\n\n'
+        "# - API keys are defined in provider-specific sections in this file.\n"
+        "[providers.mistral]\n"
+        '# api_key = ""\n\n'
         "[defaults]\n"
         '# Provider to use (currently supported: "mistral")\n'
         'provider = "mistral"\n\n'
@@ -301,7 +297,6 @@ def record(
 
     # Load user config and apply any environment vars it defines (without overwriting existing env)
     user_config = config.load_user_config() or {}
-    config.apply_user_env(user_config)
 
     # Read defaults from user config (now authoritative for most runtime options)
     user_defaults: dict[str, Any] = {}

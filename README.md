@@ -59,35 +59,22 @@ Optional extras:
 
 ---
 
-## Environment variables
+## Configuration (API keys)
 
-The app expects API keys via environment variables. You can set them in your shell or place them in a `.env` file at the project root.
+API keys are configured only in your user configuration file (config.toml), not via environment variables.
 
-Supported variables:
-- `MISTRAL_API_KEY` (required for Mistral Voxtral)
-- `OPENAI_API_KEY` (required if you use the OpenAI provider)
+- Location of the user config:
+  - macOS: ~/Library/Application Support/SuperVoxtral/config.toml
+  - Linux: ${XDG_CONFIG_HOME:-~/.config}/supervoxtral/config.toml
+  - Windows: %APPDATA%/SuperVoxtral/config.toml
 
-Examples:
-
-- macOS/Linux:
+- Configure the Mistral key:
   ```
-  export MISTRAL_API_KEY="your_mistral_key_here"
-  export OPENAI_API_KEY="your_openai_key_here"
-  ```
-
-- Windows (PowerShell):
-  ```
-  setx MISTRAL_API_KEY "your_mistral_key_here"
-  setx OPENAI_API_KEY "your_openai_key_here"
+  [providers.mistral]
+  api_key = "your_mistral_key_here"
   ```
 
-- .env file (optional, loaded via python-dotenv):
-  ```
-  MISTRAL_API_KEY=your_mistral_key_here
-  OPENAI_API_KEY=your_openai_key_here
-  ```
-
-Note: Restart your terminal (or reload the environment) after using `setx` on Windows.
+No `.env` or shell environment variables are used for API keys.
 
 ---
 
@@ -209,12 +196,12 @@ python -m svx.cli record --prompt "..."
 Recommended formats:
 - MP3 or WAV work well. MP3 reduces file size and upload time.
 
-Environment:
-- `MISTRAL_API_KEY` required.
+Authentication:
+- Mistral: key is read from user config at `providers.mistral.api_key` in `config.toml`.
 
 ### OpenAI Whisper (optional)
 - Plain transcription from audio file (WAV recommended).
-- `OPENAI_API_KEY` required.
+- Not applicable yet; OpenAI provider configuration will be documented separately.
 
 ---
 
@@ -264,7 +251,7 @@ The tool will send the converted file if you set `--format mp3` or `--format opu
 
 - “ffmpeg not found”: install via your OS package manager (see Requirements).
 - “PermissionError: Microphone”: grant mic permission in OS settings.
-- “401/403 from provider”: check that `MISTRAL_API_KEY` or `OPENAI_API_KEY` is set and valid.
+- “401/403 from provider”: check that `providers.mistral.api_key` is set and valid in your `config.toml`.
 - “Module not found”: ensure your venv is active and `pip install -e .` ran successfully.
 
 ---
@@ -289,7 +276,7 @@ MIT
 
 ## Progress checklist
 ```markdown
-- [x] Initialiser projet (Typer CLI, config .env)
+- [x] Initialiser projet (Typer CLI, config.toml)
 - [x] Implémenter l'enregistrement WAV (start/stop par commande)
 - [x] Ajouter conversion optionnelle via ffmpeg (MP3/Opus)
 - [x] Intégrer provider Mistral Voxtral (chat with audio + prompt)

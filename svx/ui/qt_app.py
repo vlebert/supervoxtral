@@ -496,10 +496,9 @@ def run_gui(
     Args mirror the CLI options, with defaults matching:
       --provider mistral --format opus --copy --no-keep-audio-files
     """
-    # Apply environment and user defaults before launching the app
+    # Apply user defaults before launching the app
     config.setup_environment(log_level=log_level)
     user_cfg = config.load_user_config() or {}
-    config.apply_user_env(user_cfg)
 
     user_defaults = user_cfg.get("defaults") or {}
     if provider == "mistral" and "provider" in user_defaults:
