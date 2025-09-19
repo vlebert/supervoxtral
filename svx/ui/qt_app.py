@@ -52,10 +52,16 @@ QWidget {
     font-size: 11pt;
 }
 
-/* Status label */
+/* Labels */
 QLabel {
     color: #cfe8ff;
     padding: 6px;
+}
+/* Info line (geek/minimal) */
+QLabel#info_label {
+    color: #9fb8e6;
+    padding: 2px 6px;
+    font-size: 10pt;
 }
 
 /* Stop button */
@@ -353,6 +359,27 @@ class RecorderWindow(QWidget):
         # Animated waveform (autonomous, not yet linked to audio)
         self._waveform = WaveformWidget(self, height=64)
         layout.addWidget(self._waveform)
+
+        # Minimal geek status line under waveform (colored + bullets)
+        sep = "<span style='color:#8b949e'> • </span>"
+        prov_model_html = f"<span style='color:#7ee787'>{provider}/{model}</span>"
+        format_html = f"<span style='color:#ffa657'>{audio_format}</span>"
+        rate_html = f"<span style='color:#a5d6ff'>{rate // 1000}k/{channels}ch</span>"
+        parts = [prov_model_html, format_html, rate_html]
+        if language:
+            lang_html = f"<span style='color:#c9b4ff'>{language}</span>"
+            parts.append(lang_html)
+        info_core = sep.join(parts)
+        info_line = (
+            "<span style='color:#8b949e'>[svx:</span> "
+            f"{info_core} "
+            "<span style='color:#8b949e'>]</span>"
+        )
+        self._info_label = QLabel(info_line)
+        self._info_label.setObjectName("info_label")
+        self._info_label.setTextFormat(Qt.TextFormat.RichText)
+        self._info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._info_label)
 
         self._status_label = QLabel("Recording... Press Stop to finish")
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
