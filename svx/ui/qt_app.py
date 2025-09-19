@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
 import svx.core.config as config
 from svx.core.audio import convert_audio, record_wav, timestamp
 from svx.core.clipboard import ClipboardError, copy_to_clipboard
-from svx.core.prompt import init_default_prompt_files
+from svx.core.prompt import init_default_prompt_files, resolve_user_prompt
 from svx.core.storage import save_transcript
 from svx.providers import get_provider
 
@@ -218,76 +218,16 @@ class RecorderWorker(QObject):
 
     def _resolve_user_prompt(self) -> str:
         """
-        Determine the final user prompt with the same priority as the CLI:
-        inline > file > user_config[prompt.text] > user_config[prompt.file] >
-        USER_PROMPT_DIR/user.md > PROMPT_DIR/user.md > default fallback.
+        Determine the final user prompt using the shared resolver.
         """
-        final_user_prompt: str | None = None
-
-        # 1) inline
-        if self.user_prompt and self.user_prompt.strip():
-            final_user_prompt = self.user_prompt.strip()
-
-        # 2) explicit file
-        if not final_user_prompt and self.user_prompt_file:
-            try:
-                text = Path(self.user_prompt_file).read_text(encoding="utf-8").strip()
-                if text:
-                    final_user_prompt = text
-            except Exception:
-                logging.warning("Failed to read user prompt file: %s", self.user_prompt_file)
-
-        # 3/4) from user config (text or file)
-        if not final_user_prompt:
-            try:
-                user_cfg = config.load_user_config() or {}
-                prompt_section = user_cfg.get("prompt") or {}
-                if isinstance(prompt_section, dict):
-                    cfg_text = prompt_section.get("text")
-                    if isinstance(cfg_text, str) and cfg_text.strip():
-                        final_user_prompt = cfg_text.strip()
-                    if not final_user_prompt:
-                        cfg_file = prompt_section.get("file")
-                        if isinstance(cfg_file, str) and cfg_file.strip():
-                            p = Path(cfg_file).expanduser()
-                            if p.exists():
-                                try:
-                                    t = p.read_text(encoding="utf-8").strip()
-                                    if t:
-                                        final_user_prompt = t
-                                except Exception:
-                                    logging.debug(
-                                        "Failed to read prompt file from user config: %s", cfg_file
-                                    )
-            except Exception:
-                logging.debug("User config prompt processing failed.")
-
-        # 5) user prompt dir
-        if not final_user_prompt:
-            upath = config.USER_PROMPT_DIR / "user.md"
-            if upath.exists():
-                try:
-                    t = upath.read_text(encoding="utf-8").strip()
-                    if t:
-                        final_user_prompt = t
-                except Exception:
-                    logging.debug("Could not read user prompt file %s", upath)
-
-        # 6) project prompt dir
-        if not final_user_prompt:
-            fallback_file = config.PROMPT_DIR / "user.md"
-            if fallback_file.exists():
-                try:
-                    text = fallback_file.read_text(encoding="utf-8").strip()
-                    if text:
-                        final_user_prompt = text
-                except Exception:
-                    logging.debug("Could not read fallback prompt file %s", fallback_file)
-
-        # 7) default
-        if not final_user_prompt:
-            final_user_prompt = "What's in this audio?"
-        return final_user_prompt
+        user_cfg = config.load_user_config() or {}
+        return resolve_user_prompt(
+            user_cfg,
+            self.user_prompt,
+            self.user_prompt_file,
+            config.USER_PROMPT_DIR,
+            config.PROMPT_DIR,
+        )
 
     def run(self) -> None:
         """
