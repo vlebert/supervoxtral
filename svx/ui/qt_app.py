@@ -22,7 +22,7 @@ import threading
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QPoint, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QFont, QFontDatabase, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QLabel,
@@ -48,7 +48,7 @@ DARK_MONO_STYLESHEET = """
 QWidget {
     background-color: #0f1113;
     color: #e6eef3;
-    font-family: "JetBrains Mono", "Fira Code", "Menlo", "Courier New", monospace;
+    /* font-family set via QApplication.setFont */
     font-size: 11pt;
 }
 
@@ -88,6 +88,16 @@ QWidget#recorder_window {
     border-radius: 8px;
 }
 """
+
+
+def get_fixed_font(point_size: int = 11) -> QFont:
+    """
+    Return the system fixed-width font with the given point size.
+    Using QFontDatabase.FixedFont avoids missing-family substitution warnings.
+    """
+    f = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+    f.setPointSize(point_size)
+    return f
 
 
 class WaveformWidget(QWidget):
@@ -419,7 +429,8 @@ class RecorderWindow(QWidget):
         app = QApplication.instance()
         # Narrow the type to QApplication before accessing styleSheet/setStyleSheet
         if isinstance(app, QApplication):
-            # Merge existing stylesheet conservatively by appending our theme
+            # Set system fixed-width font and merge stylesheet conservatively
+            app.setFont(get_fixed_font(11))
             existing = app.styleSheet() or ""
             app.setStyleSheet(existing + DARK_MONO_STYLESHEET)
         else:
@@ -550,6 +561,8 @@ def run_gui(
         log_level = str(user_defaults["log_level"])
 
     app = QApplication.instance() or QApplication([])
+    if isinstance(app, QApplication):
+        app.setFont(get_fixed_font(11))
 
     # Ensure our stylesheet is applied as early as possible
     # Narrow runtime type before calling QWidget-specific methods to satisfy static checkers.
