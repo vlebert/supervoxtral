@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
 import svx.core.config as config
 from svx.core.audio import convert_audio, record_wav, timestamp
 from svx.core.clipboard import ClipboardError, copy_to_clipboard
-from svx.core.prompt import init_default_prompt_files, resolve_user_prompt
+from svx.core.prompt import resolve_user_prompt
 from svx.core.storage import save_transcript
 from svx.providers import get_provider
 
@@ -232,7 +232,6 @@ class RecorderWorker(QObject):
             self.user_prompt,
             self.user_prompt_file,
             config.USER_PROMPT_DIR,
-            config.PROMPT_DIR,
         )
 
     def run(self) -> None:
@@ -336,7 +335,6 @@ class RecorderWindow(QWidget):
 
         # Environment and prompt files
         config.setup_environment(log_level=log_level)
-        init_default_prompt_files(config.PROMPT_DIR)
 
         # Window basics
         self.setObjectName("recorder_window")

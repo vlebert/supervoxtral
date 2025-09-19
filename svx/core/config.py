@@ -4,7 +4,7 @@ Core configuration utilities for SuperVoxtral.
 
 - Resolves a per-user configuration directory (cross-platform).
 
-- Exposes project path constants (ROOT_DIR, RECORDINGS_DIR, TRANSCRIPTS_DIR, LOGS_DIR, PROMPT_DIR)
+- Exposes project path constants (ROOT_DIR, RECORDINGS_DIR, TRANSCRIPTS_DIR, LOGS_DIR)
   as well as user-scoped paths (USER_CONFIG_DIR, USER_PROMPT_DIR).
 - Configures logging and ensures required directories exist.
 
@@ -37,7 +37,6 @@ ROOT_DIR: Final[Path] = Path.cwd()
 RECORDINGS_DIR: Final[Path] = ROOT_DIR / "recordings"
 TRANSCRIPTS_DIR: Final[Path] = ROOT_DIR / "transcripts"
 LOGS_DIR: Final[Path] = ROOT_DIR / "logs"
-PROMPT_DIR: Final[Path] = ROOT_DIR / "prompt"
 
 
 # User config (platform standard)
@@ -117,7 +116,7 @@ def setup_environment(log_level: str = "INFO") -> None:
     Ensure project directories exist and configure logging.
 
 
-    - Creates recordings/, transcripts/, logs/, prompt/ directories as needed.
+    - Creates recordings/, transcripts/, logs/ directories as needed.
     - Ensures user prompt dir exists (but does not overwrite user files).
     - Configures logging according to `log_level`.
     """
@@ -126,7 +125,6 @@ def setup_environment(log_level: str = "INFO") -> None:
     RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
     TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    PROMPT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Ensure user config/prompt dirs exist (created but files not overwritten)
     USER_PROMPT_DIR.mkdir(parents=True, exist_ok=True)
@@ -178,15 +176,81 @@ def load_user_config() -> dict[str, Any]:
     return _read_toml(USER_CONFIG_FILE)
 
 
+def init_user_config(force: bool = False, prompt_file: Path | None = None) -> Path:
+    """
+    Initialize the user's config.toml with example content.
+
+    - Ensures USER_CONFIG_DIR exists.
+    - Writes USER_CONFIG_FILE with example content if missing or force=True.
+    - The example references the provided prompt_file (or USER_PROMPT_DIR/'user.md' by default).
+    """
+    USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    if prompt_file is None:
+        prompt_file = USER_PROMPT_DIR / "user.md"
+
+    example_toml = (
+        "# SuperVoxtral - User configuration\n"
+        "#\n"
+        "# Basics:\n"
+        "# - This configuration controls the default behavior of `svx record`.\n"
+        "# - The parameters below override the binary's built-in defaults.\n"
+        "# - You can override a few options at runtime via the CLI:\n"
+        "#     --prompt / --prompt-file (set a one-off prompt for this run)\n"
+        "#     --log-level (debugging)\n"
+        "#     --outfile-prefix (one-off output naming)\n"
+        "#\n"
+        "# Authentication:\n"
+        "# - API keys are defined in provider-specific sections in this file.\n"
+        "[providers.mistral]\n"
+        '# api_key = ""\n\n'
+        "[defaults]\n"
+        '# Provider to use (currently supported: "mistral")\n'
+        'provider = "mistral"\n\n'
+        '# File format sent to the provider: "wav" | "mp3" | "opus"\n'
+        '# Recording is always WAV; conversion is applied if "mp3" or "opus"\n'
+        'format = "opus"\n\n'
+        "# Model to use on the provider side (example for Mistral Voxtral)\n"
+        'model = "voxtral-mini-latest"\n\n'
+        "# Language hint (may help the provider)\n"
+        'language = "fr"\n\n'
+        "# Audio recording parameters\n"
+        "rate = 16000\n"
+        "channels = 1\n"
+        'device = ""\n\n'
+        "# Temporary audio files handling:\n"
+        "# - false: delete WAV/converted files after transcription\n"
+        "# - true: keep files on disk\n"
+        "keep_audio_files = false\n\n"
+        "# Automatically copy the transcribed text to the system clipboard\n"
+        "copy = true\n\n"
+        '# Log level: "DEBUG" | "INFO" | "WARNING" | "ERROR"\n'
+        'log_level = "INFO"\n\n'
+        "[prompt]\n"
+        "# Default user prompt source:\n"
+        "# - Option 1: Use a file (recommended)\n"
+        f'file = "{str(prompt_file)}"\n'
+        "#\n"
+        "# - Option 2: Inline prompt (less recommended for long text)\n"
+        '# text = "Please transcribe the audio and provide a concise summary in French."\n'
+    )
+
+    if not USER_CONFIG_FILE.exists() or force:
+        try:
+            USER_CONFIG_FILE.write_text(example_toml, encoding="utf-8")
+        except Exception:
+            logging.debug("Could not write user config file: %s", USER_CONFIG_FILE)
+    return USER_CONFIG_FILE
+
+
 __all__ = [
     "ROOT_DIR",
     "RECORDINGS_DIR",
     "TRANSCRIPTS_DIR",
     "LOGS_DIR",
-    "PROMPT_DIR",
     "USER_CONFIG_DIR",
     "USER_PROMPT_DIR",
     "USER_CONFIG_FILE",
     "setup_environment",
     "load_user_config",
+    "init_user_config",
 ]

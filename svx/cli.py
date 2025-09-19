@@ -13,8 +13,8 @@ from rich.prompt import Prompt
 import svx.core.config as config
 from svx.core.audio import convert_audio, record_wav, timestamp
 from svx.core.clipboard import copy_to_clipboard
-from svx.core.config import PROMPT_DIR, RECORDINGS_DIR, TRANSCRIPTS_DIR, setup_environment
-from svx.core.prompt import init_default_prompt_files, resolve_user_prompt
+from svx.core.config import RECORDINGS_DIR, TRANSCRIPTS_DIR, setup_environment
+from svx.core.prompt import init_user_prompt_file, resolve_user_prompt
 from svx.core.storage import save_transcript
 from svx.providers import get_provider
 
@@ -73,7 +73,6 @@ def config_show() -> None:
     # Gather info
     user_config_file = config.USER_CONFIG_FILE
     user_prompt_file = config.USER_PROMPT_DIR / "user.md"
-    project_prompt_file = config.PROMPT_DIR / "user.md"
 
     defaults_section = user_cfg.get("defaults") or {}
     prompt_section = user_cfg.get("prompt") or {}
@@ -107,15 +106,7 @@ def config_show() -> None:
                 resolved_prompt_excerpt = t
         except Exception:
             pass
-    # 4) project prompt
-    if not resolved_prompt_source and project_prompt_file.exists():
-        try:
-            t = project_prompt_file.read_text(encoding="utf-8").strip()
-            if t:
-                resolved_prompt_source = f"project prompt file: {project_prompt_file}"
-                resolved_prompt_excerpt = t
-        except Exception:
-            pass
+
     if not resolved_prompt_source:
         resolved_prompt_source = "fallback (builtin)"
         resolved_prompt_excerpt = "What's in this audio?"
@@ -133,10 +124,7 @@ def config_show() -> None:
     console.print(
         f"[cyan]User prompt file:[/cyan] {user_prompt_file} (exists={user_prompt_file.exists()})"
     )
-    console.print(
-        f"[cyan]Project prompt file:[/cyan] {project_prompt_file} "
-        f"(exists={project_prompt_file.exists()})"
-    )
+
     console.print()
     console.print("[bold]Provider credentials (from config.toml)[/bold]")
     console.print(f"  providers.mistral.api_key: {_mask_secret(mistral_key)}")
@@ -157,85 +145,12 @@ def config_init(
     Initialize the user configuration directory with an active config.toml and a prompt/user.md.
     Does not overwrite existing files unless --force is specified.
     """
-    user_dir = config.USER_CONFIG_DIR
-    user_prompt_dir = config.USER_PROMPT_DIR
-    user_dir.mkdir(parents=True, exist_ok=True)
-    user_prompt_dir.mkdir(parents=True, exist_ok=True)
+    # Delegate initialization to core modules
+    prompt_path = init_user_prompt_file(force=force)
+    cfg_path = config.init_user_config(force=force, prompt_file=prompt_path)
 
-    cfg_path = config.USER_CONFIG_FILE
-    prompt_path = user_prompt_dir / "user.md"
-
-    example_toml = (
-        "# SuperVoxtral - User configuration\n"
-        "#\n"
-        "# Basics:\n"
-        "# - This configuration controls the default behavior of `svx record`.\n"
-        "# - The parameters below override the binary's built-in defaults.\n"
-        "# - You can override a few options at runtime via the CLI:\n"
-        "#     --prompt / --prompt-file (set a one-off prompt for this run)\n"
-        "#     --log-level (debugging)\n"
-        "#     --outfile-prefix (one-off output naming)\n"
-        "#\n"
-        "# Authentication:\n"
-        "# - API keys are defined in provider-specific sections in this file.\n"
-        "[providers.mistral]\n"
-        '# api_key = ""\n\n'
-        "[defaults]\n"
-        '# Provider to use (currently supported: "mistral")\n'
-        'provider = "mistral"\n\n'
-        '# File format sent to the provider: "wav" | "mp3" | "opus"\n'
-        '# Recording is always WAV; conversion is applied if "mp3" or "opus"\n'
-        'format = "opus"\n\n'
-        "# Model to use on the provider side (example for Mistral Voxtral)\n"
-        'model = "voxtral-mini-latest"\n\n'
-        "# Language hint (may help the provider)\n"
-        'language = "fr"\n\n'
-        "# Audio recording parameters\n"
-        "rate = 16000\n"
-        "channels = 1\n"
-        'device = ""\n\n'
-        "# Temporary audio files handling:\n"
-        "# - false: delete WAV/converted files after transcription\n"
-        "# - true: keep files on disk\n"
-        "keep_audio_files = false\n\n"
-        "# Automatically copy the transcribed text to the system clipboard\n"
-        "copy = true\n\n"
-        '# Log level: "DEBUG" | "INFO" | "WARNING" | "ERROR"\n'
-        'log_level = "INFO"\n\n'
-        "[prompt]\n"
-        "# Default user prompt source:\n"
-        "# - Option 1: Use a file (recommended)\n"
-        f'file = "{str(prompt_path)}"\n'
-        "#\n"
-        "# - Option 2: Inline prompt (less recommended for long text)\n"
-        '# text = "Please transcribe the audio and provide a concise summary in French."\n'
-    )
-
-    example_prompt = (
-        "# SuperVoxtral user prompt\n"
-        "Please transcribe the audio and provide a short summary in French.\n"
-    )
-
-    wrote_any = False
-
-    if not cfg_path.exists() or force:
-        try:
-            cfg_path.write_text(example_toml, encoding="utf-8")
-            console.print(f"Wrote user config: {cfg_path}")
-            wrote_any = True
-        except Exception as e:
-            console.print(f"Failed to write config file {cfg_path}: {e}")
-
-    if not prompt_path.exists() or force:
-        try:
-            prompt_path.write_text(example_prompt, encoding="utf-8")
-            console.print(f"Wrote user prompt: {prompt_path}")
-            wrote_any = True
-        except Exception as e:
-            console.print(f"Failed to write prompt file {prompt_path}: {e}")
-
-    if not wrote_any:
-        console.print("User config already exists. Use --force to overwrite.")
+    console.print(f"Ensured user config: {cfg_path}")
+    console.print(f"Ensured user prompt: {prompt_path}")
 
 
 @app.command()
@@ -288,12 +203,6 @@ def record(
     """
     # Initial environment + logging according to CLI-provided log_level
     setup_environment(log_level=log_level)
-
-    # Ensure both project and user prompt locations exist
-    init_default_prompt_files(PROMPT_DIR)
-    # Ensure user config and prompt directories exist (create if missing).
-    config.USER_PROMPT_DIR.mkdir(parents=True, exist_ok=True)
-    config.USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
     # Load user config and apply any environment vars it defines (without overwriting existing env)
     user_config = config.load_user_config() or {}
@@ -398,7 +307,6 @@ def record(
             user_prompt,
             user_prompt_file,
             config.USER_PROMPT_DIR,
-            PROMPT_DIR,
         )
 
         # Provider handling via registry

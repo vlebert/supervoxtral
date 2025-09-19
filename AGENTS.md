@@ -12,14 +12,14 @@ supervoxtral/
 │   ├── core/                      # Core logic (audio, config, prompts, storage)
 │   │   ├── audio.py               # Recording, ffmpeg detection/conversion
 │   │   ├── config.py              # Paths, env loading, logging setup
-│   │   ├── prompt.py              # Prompt resolution and default files
+│   │   ├── prompt.py              # Prompt resolution and user prompt initialization
 │   │   └── storage.py             # Save transcripts and raw JSON
 │   ├── providers/                 # API integrations
 │   │   ├── __init__.py            # Provider registry (get_provider, register...)
 │   │   ├── base.py                # Provider protocol + shared types
 │   │   └── mistral.py             # Mistral Voxtral implementation
 │   └── ui/                        # TUI (future)
-├── prompt/                        # Default user prompt file (user.md)
+
 ├── recordings/                    # Audio files (WAV/MP3/Opus)
 ├── transcripts/                   # API responses (txt/json)
 ├── logs/                          # Application logs

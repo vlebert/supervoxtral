@@ -59,14 +59,24 @@ Optional extras:
 
 ---
 
-## Configuration (API keys)
+## Configuration (API keys and prompts)
 
-API keys are configured only in your user configuration file (config.toml), not via environment variables.
+API keys and default behavior are configured only in your user configuration file (config.toml), not via environment variables.
 
 - Location of the user config:
   - macOS: ~/Library/Application Support/SuperVoxtral/config.toml
   - Linux: ${XDG_CONFIG_HOME:-~/.config}/supervoxtral/config.toml
   - Windows: %APPDATA%/SuperVoxtral/config.toml
+
+- Initialize your user config and user prompt file:
+  ```
+  svx config init
+  ```
+  This creates:
+  - config.toml (with sensible defaults)
+  - a user prompt file at: ~/Library/Application Support/SuperVoxtral/prompt/user.md (macOS)
+    - Linux: ${XDG_CONFIG_HOME:-~/.config}/supervoxtral/prompt/user.md
+    - Windows: %APPDATA%/SuperVoxtral/prompt/user.md
 
 - Configure the Mistral key:
   ```
@@ -131,24 +141,28 @@ svx record --user-prompt "Transcris puis résume ce qui est dit dans l'audio."
 
 #### User prompt from file
 ```
-svx record --user-prompt-file prompt/user.md
+svx record --user-prompt-file ~/Library/Application\ Support/SuperVoxtral/prompt/user.md
 ```
+(Adjust the path for your OS; see “Configuration” for locations.)
 
-#### No concatenation
-Priority: inline (--user-prompt) > file (--user-prompt-file) > prompt/user.md (if present) > default ("What's in this audio?"). The file and inline prompts are not concatenated.
+#### Resolution priority (no concatenation)
+Order of precedence for determining the final prompt:
+1) `--user-prompt` (inline)
+2) `--user-prompt-file` (explicit file)
+3) `config.toml` → `[prompt].text`
+4) `config.toml` → `[prompt].file`
+5) User prompt file in your user config dir (`.../SuperVoxtral/prompt/user.md`)
+6) Default fallback: "What's in this audio?"
 
-#### Auto-detection from `prompt/` directory
-If no prompt options are provided, the tool will automatically use:
+Note: the file and inline prompts are not concatenated; the first non-empty source wins.
 
-- `prompt/user.md` (if present and non-empty) as the user prompt
-
-If no user prompt is provided (inline or file), it defaults to "What's in this audio?".
+If no user prompt is provided (by any of the above), it defaults to "What's in this audio?".
 
 A single user message is sent containing the audio and (optionally) text.
   Flow:
   - Starts recording WAV immediately.
   - Press Enter (or Ctrl+C) to stop recording.
-  - Converts WAV to MP3 (if `--format mp3`).
+  - Converts WAV to MP3 (if `--format mp3`) or Opus (if `--format opus`).
   - Sends the audio to Mistral Voxtral as base64 input_audio plus your text prompt.
   - Prints and saves the response to `transcripts/`.
 
@@ -170,10 +184,8 @@ Config-driven options (set these in config.toml under [defaults]):
 One-off CLI overrides:
 - `--outfile-prefix mynote_2025-09-09` (custom file prefix)
 - `--log-level debug` (verbose logs)
-
-
 - `--user-prompt` (alias: `--prompt`; user prompt text, inline)
-- `--user-prompt-file` (alias: `--prompt-file`; path to user prompt markdown file, e.g., prompt/user.md)
+- `--user-prompt-file` (alias: `--prompt-file`; path to user prompt markdown file in your user config dir)
 
 Alternative invocation (without console script):
 ```
@@ -287,5 +299,5 @@ MIT
 - [ ] Préparer prompts/ pour post-processing (phase ultérieure)
 - [x] Rédiger doc d'installation/usage (incl. ffmpeg)
 - [x] Créer AGENTS.md court pour les agents
-- [x] Ajouter gestion des prompts système et utilisateur (inline/fichier)
+- [x] Ajouter gestion des prompts utilisateur (inline/fichier/config)
 ```

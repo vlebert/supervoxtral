@@ -14,11 +14,13 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from .config import USER_PROMPT_DIR
+
 __all__ = [
     "read_text_file",
     "resolve_prompt",
     "resolve_user_prompt",
-    "init_default_prompt_files",
+    "init_user_prompt_file",
 ]
 
 
@@ -66,7 +68,6 @@ def resolve_user_prompt(
     inline: str | None,
     file: Path | None,
     user_prompt_dir: Path,
-    project_prompt_dir: Path,
 ) -> str:
     """
     Resolve the effective user prompt from multiple sources, by priority:
@@ -76,8 +77,7 @@ def resolve_user_prompt(
     3) user config inline text (user_cfg['prompt']['text'])
     4) user config file path (user_cfg['prompt']['file'])
     5) user prompt dir file (user_prompt_dir / 'user.md')
-    6) project prompt dir fallback (project_prompt_dir / 'user.md')
-    7) literal fallback: "What's in this audio?"
+    6) literal fallback: "What's in this audio?"
 
     Returns the first non-empty string after stripping.
     """
@@ -118,21 +118,11 @@ def resolve_user_prompt(
             logging.debug("Could not read user prompt in user prompt dir: %s", user_prompt_dir)
         return ""
 
-    def _from_project_prompt_dir() -> str:
-        try:
-            ppath = Path(project_prompt_dir) / "user.md"
-            if ppath.exists():
-                return read_text_file(ppath).strip()
-        except Exception:
-            logging.debug("Could not read project fallback prompt: %s", project_prompt_dir)
-        return ""
-
     suppliers = [
         lambda: _strip(inline),
         lambda: _read(file),
         _from_user_cfg,
         _from_user_prompt_dir,
-        _from_project_prompt_dir,
     ]
 
     for supplier in suppliers:
@@ -146,19 +136,23 @@ def resolve_user_prompt(
     return "What's in this audio?"
 
 
-def init_default_prompt_files(prompt_dir: Path) -> None:
+def init_user_prompt_file(force: bool = False) -> Path:
     """
-    Ensure default prompt files exist in `prompt_dir`:
-    - user.md
+    Initialize the user's prompt file in the user prompt directory.
 
-    If they don't exist, create them as empty files.
+    - Ensures USER_PROMPT_DIR exists.
+    - Creates or overwrites (if force=True) USER_PROMPT_DIR / 'user.md'
+      with a small example prompt.
+    - Returns the path to the user prompt file.
     """
-    prompt_dir = Path(prompt_dir)
-    prompt_dir.mkdir(parents=True, exist_ok=True)
-
-    for _prompt_file in (prompt_dir / "user.md",):
+    USER_PROMPT_DIR.mkdir(parents=True, exist_ok=True)
+    path = USER_PROMPT_DIR / "user.md"
+    if not path.exists() or force:
+        example_prompt = (
+            "# SuperVoxtral user prompt\nPlease transcribe the audio and provide a short summary.\n"
+        )
         try:
-            if not _prompt_file.exists():
-                _prompt_file.write_text("", encoding="utf-8")
+            path.write_text(example_prompt, encoding="utf-8")
         except Exception as e:
-            logging.debug("Could not initialize prompt file %s: %s", _prompt_file, e)
+            logging.debug("Could not initialize user prompt file %s: %s", path, e)
+    return path
