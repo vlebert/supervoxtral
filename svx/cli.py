@@ -21,7 +21,7 @@ from svx.providers import get_provider
 app = typer.Typer(help="SuperVoxtral CLI: record audio and send to transcription/chat providers.")
 console = Console()
 
-# Config subcommands (open config dir, show effective configuration)
+# Config subcommands (open/show user configuration)
 config_app = typer.Typer(help="Config utilities (open/show user configuration)")
 app.add_typer(config_app, name="config")
 
@@ -169,27 +169,55 @@ def config_init(
     prompt_path = user_prompt_dir / "user.md"
 
     example_toml = (
+        "# SuperVoxtral - Configuration utilisateur\n"
+        "#\n"
+        "# Principe:\n"
+        "# - Cette configuration contrôle le comportement par défaut de `svx record`.\n"
+        "# - Les paramètres ci-dessous remplacent les defaults intégrés au binaire.\n"
+        "# - Overrides ponctuels possibles via CLI:\n"
+        "#     --prompt / --prompt-file (spécifier une consigne pour un run)\n"
+        "#     --log-level (dépannage)\n"
+        "#     --outfile-prefix (nommage ponctuel des sorties)\n"
+        "#\n"
+        "# Authentification:\n"
+        "# - Les clés API doivent être définies dans [env] ci-dessous OU via votre environnement système.\n"
+        "# - Si la variable existe déjà dans l'environnement, la valeur du TOML ne la remplace pas.\n"
         "[env]\n"
-        'MISTRAL_API_KEY = ""\n\n'
+        '# MISTRAL_API_KEY = ""\n\n'
         "[defaults]\n"
-        'provider = "mistral"\n'
-        'format = "mp3"\n'
-        'model = "voxtral-small-latest"\n'
-        'language = "fr"\n'
+        '# Provider à utiliser (actuellement support: "mistral")\n'
+        'provider = "mistral"\n\n'
+        '# Format de fichier envoyé au provider: "wav" | "mp3" | "opus"\n'
+        '# Enregistrement natif en WAV; conversion appliquée si "mp3" ou "opus"\n'
+        'format = "opus"\n\n'
+        "# Modèle à utiliser côté provider (exemple pour Mistral Voxtral)\n"
+        'model = "voxtral-mini-latest"\n\n'
+        "# Indice de langue (peut aider le provider)\n"
+        'language = "fr"\n\n'
+        "# Paramètres d'enregistrement audio\n"
         "rate = 16000\n"
         "channels = 1\n"
-        'device = ""\n'
-        "keep_audio_files = false\n"
-        "copy = true\n"
+        'device = ""\n\n'
+        "# Gestion des fichiers audio temporaires:\n"
+        "# - false: supprime les WAV/convertis après transcription\n"
+        "# - true: conserve les fichiers sur disque\n"
+        "keep_audio_files = false\n\n"
+        "# Copier automatiquement le texte transcrit dans le presse-papiers\n"
+        "copy = true\n\n"
+        '# Niveau de logs: "DEBUG" | "INFO" | "WARNING" | "ERROR"\n'
         'log_level = "INFO"\n\n'
         "[prompt]\n"
-        "# prefer the packed user prompt file in the user config dir\n"
-        'file = "' + str(prompt_path) + '"\n'
+        "# Source du prompt utilisateur par défaut:\n"
+        "# - Option 1: Utiliser un fichier (recommandé)\n"
+        f'file = "{str(prompt_path)}"\n'
+        "#\n"
+        "# - Option 2: Prompt inline (moins recommandé si long)\n"
+        '# text = "Veuillez transcrire l\'audio et fournir un résumé concis en français."\n'
     )
 
     example_prompt = (
-        "# SuperVoxtral user prompt\\n"
-        "Please transcribe the audio and provide a short summary in French.\\n"
+        "# SuperVoxtral user prompt\n"
+        "Please transcribe the audio and provide a short summary in French.\n"
     )
 
     wrote_any = False
@@ -216,61 +244,22 @@ def config_init(
 
 @app.command()
 def record(
-    provider: str = typer.Option(
-        "mistral",
-        "--provider",
-        "-p",
-        help="Provider to use (e.g., 'mistral').",
-    ),
-    audio_format: str = typer.Option(
-        "opus",
-        "--format",
-        "-f",
-        help="Output format to send: wav|mp3|opus. Recording is always WAV, conversion optional.",
-    ),
     user_prompt: str | None = typer.Option(
         None,
         "--user-prompt",
         "--prompt",
-        help="User prompt text (inline).",
+        help="User prompt text (inline) to use for this run.",
     ),
     user_prompt_file: Path | None = typer.Option(
         None,
         "--user-prompt-file",
         "--prompt-file",
-        help="Path to a text file containing the user prompt.",
-    ),
-    model: str = typer.Option(
-        "voxtral-small-latest",
-        "--model",
-        help="Model name for the provider (for Mistral Voxtral).",
-    ),
-    language: str | None = typer.Option(
-        None,
-        "--language",
-        help="Language hint (used by certain providers).",
-    ),
-    rate: int = typer.Option(16000, "--rate", help="Sample rate (Hz), e.g., 16000 or 32000."),
-    channels: int = typer.Option(1, "--channels", help="Number of channels (1=mono, 2=stereo)."),
-    device: str | None = typer.Option(
-        None,
-        "--device",
-        help="Input device (index or name). Leave empty for default.",
-    ),
-    keep_audio_files: bool = typer.Option(
-        False,
-        "--keep-audio-files/--no-keep-audio-files",
-        help="Keep all audio files (WAV and converted format).",
+        help="Path to a text file containing the user prompt for this run.",
     ),
     outfile_prefix: str | None = typer.Option(
         None,
         "--outfile-prefix",
         help="Custom output file prefix (default uses timestamp).",
-    ),
-    copy: bool = typer.Option(
-        True,
-        "--copy/--no-copy",
-        help="Copy the final transcript text to the system clipboard.",
     ),
     gui: bool = typer.Option(
         False,
@@ -286,16 +275,22 @@ def record(
     """
     Record audio from the microphone and send it to the selected provider.
 
-    Use `--gui` to launch the GUI frontend. Priority for option resolution:
-    1) CLI explicit > 2) defaults in user config (config.toml) >
-    3) unified CLI defaults (which prefer GUI defaults).
+    This CLI accepts only a small set of runtime flags. Most defaults (provider, format,
+    model, language, sample rate, channels, device, file retention, copy-to-clipboard)
+    must be configured in the user's `config.toml` under [defaults].
+
+    Priority for option resolution:
+    1) CLI explicit (only for --prompt/--prompt-file, --log-level, --outfile-prefix, --gui)
+    2) defaults in user config (config.toml)
+    3) coded CLI defaults (used when user config is absent)
+
     Flow:
     - Records WAV until you press Enter (CLI mode).
-    - Optionally converts to MP3/Opus.
+    - Optionally converts to MP3/Opus depending on config.
     - Sends the file per provider rules.
     - Prints and saves the result.
     """
-    # Environment and directories
+    # Initial environment + logging according to CLI-provided log_level
     setup_environment(log_level=log_level)
 
     # Ensure both project and user prompt locations exist
@@ -308,8 +303,7 @@ def record(
     user_config = config.load_user_config() or {}
     config.apply_user_env(user_config)
 
-    # Allow user defaults to override the project's coded defaults, but only when the CLI
-    # value still equals the coded default. This preserves CLI precedence.
+    # Read defaults from user config (now authoritative for most runtime options)
     user_defaults: dict[str, Any] = {}
     try:
         user_defaults = user_config.get("defaults") or {}
@@ -318,40 +312,38 @@ def record(
     except Exception:
         user_defaults = {}
 
-    # Only override parameters that still equal the project's default values.
-    # (These literals must match the function signature defaults.)
-    if provider == "mistral" and "provider" in user_defaults:
-        provider = user_defaults["provider"]
-    if audio_format == "wav" and "format" in user_defaults:
-        audio_format = user_defaults["format"]
-    if model == "voxtral-small-latest" and "model" in user_defaults:
-        model = user_defaults["model"]
-    if language is None and "language" in user_defaults:
-        language = user_defaults["language"]
-    if rate == 16000 and "rate" in user_defaults:
-        rate = int(user_defaults["rate"])
-    if channels == 1 and "channels" in user_defaults:
-        channels = int(user_defaults["channels"])
-    if device is None and "device" in user_defaults:
-        device = user_defaults["device"] or None
-    if keep_audio_files is True and "keep_audio_files" in user_defaults:
-        keep_audio_files = bool(user_defaults["keep_audio_files"])
-    if outfile_prefix is None and "outfile_prefix" in user_defaults:
-        outfile_prefix = user_defaults["outfile_prefix"] or None
-    if copy is False and "copy" in user_defaults:
-        copy = bool(user_defaults["copy"])
-    if log_level == "INFO" and "log_level" in user_defaults:
-        log_level = str(user_defaults["log_level"])
-        # Reconfigure logging if user changed it
-        logging.getLogger().setLevel(logging.getLevelName(log_level))
+    # Resolve effective runtime parameters from user config with sensible fallbacks
+    provider = str(user_defaults.get("provider", "mistral"))
+    audio_format = str(user_defaults.get("format", "opus"))
+    model = str(user_defaults.get("model", "voxtral-mini-latest"))
+    language = user_defaults.get("language") or None
+    try:
+        rate = int(user_defaults.get("rate", 16000))
+    except Exception:
+        rate = 16000
+    try:
+        channels = int(user_defaults.get("channels", 1))
+    except Exception:
+        channels = 1
+    device = user_defaults.get("device") or None
+    keep_audio_files = bool(user_defaults.get("keep_audio_files", False))
+    copy = bool(user_defaults.get("copy", True))
+    if outfile_prefix is None:
+        outfile_prefix = user_defaults.get("outfile_prefix") or None
 
-    # Validate basic options
+    # If user_config specifies a log_level, apply it (this overrides the CLI-provided one)
+    if "log_level" in user_defaults:
+        configured_level = str(user_defaults["log_level"])
+        logging.getLogger().setLevel(logging.getLevelName(configured_level))
+        log_level = configured_level
+
+    # Basic validation (fail fast for obvious misconfiguration)
     if channels not in (1, 2):
-        raise typer.BadParameter("channels must be 1 or 2")
+        raise typer.BadParameter("channels must be 1 or 2 (configured in config.toml)")
     if rate <= 0:
-        raise typer.BadParameter("rate must be > 0")
+        raise typer.BadParameter("rate must be > 0 (configured in config.toml)")
     if audio_format not in {"wav", "mp3", "opus"}:
-        raise typer.BadParameter("--format must be one of wav|mp3|opus")
+        raise typer.BadParameter("format must be one of wav|mp3|opus (configured in config.toml)")
 
     # If GUI requested, launch GUI with the resolved parameters and exit.
     if gui:
@@ -445,14 +437,14 @@ def record(
                 logging.warning("Failed to copy transcript to clipboard: %s", e)
                 console.print("Warning: failed to copy transcription to clipboard.")
 
-        # Post-processing deletion policy (only --keep-audio-files)
+        # Post-processing deletion policy (controlled by config.toml keep_audio_files)
         try:
             if not keep_audio_files:
                 # Remove WAV
                 try:
                     if wav_path.exists():
                         wav_path.unlink()
-                        logging.info("Removed WAV (--no-keep-audio-files): %s", wav_path)
+                        logging.info("Removed WAV (config.keep_audio_files=false): %s", wav_path)
                 except Exception:
                     logging.warning("Failed to remove WAV: %s", wav_path)
                 # Remove converted file if present and distinct
@@ -461,13 +453,13 @@ def record(
                         if Path(to_send_path).exists():
                             Path(to_send_path).unlink()
                             logging.info(
-                                "Removed converted audio (--no-keep-audio-files): %s",
+                                "Removed converted audio (config.keep_audio_files=false): %s",
                                 to_send_path,
                             )
                     except Exception:
                         logging.warning("Failed to remove converted audio: %s", to_send_path)
             else:
-                logging.info("Keeping audio files (--keep-audio-files)")
+                logging.info("Keeping audio files (config.keep_audio_files=true)")
         except Exception:
             logging.debug("Audio file cleanup encountered a non-fatal error.", exc_info=True)
 
