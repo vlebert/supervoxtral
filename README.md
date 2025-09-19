@@ -113,18 +113,18 @@ General command form:
 svx record [OPTIONS]
 ```
 
-Note: the CLI now exposes a single recording entrypoint. Use `svx record --gui` to launch the GUI frontend.
+Note: the CLI now exposes a single recording entrypoint. Use `svx record --gui` to launch the GUI frontend. Most defaults (provider, format, model, language, rate, channels, device, keep_audio_files, copy) are configured via your user config (config.toml). The CLI only supports one-off overrides for: --prompt/--prompt-file, --log-level, --outfile-prefix, and --gui.
 
 Planned MVP commands:
 
-- Record with Mistral Voxtral (chat with audio) and a prompt:
+- Record with Mistral Voxtral (chat with audio) and a prompt (provider/format come from config):
   ```
-  svx record --provider mistral --format mp3 --prompt "What's in this file?"
+  svx record --prompt "What's in this file?"
   ```
-  Tip: you can copy the final transcript to your system clipboard by adding the `--copy` flag. This is useful to quickly paste the result into another app or note.
+  Tip: to automatically copy the final transcript to your system clipboard, set `copy = true` in your user `config.toml`.
   Example:
   ```
-  svx record --provider mistral --format mp3 --prompt "What's in this file?" --copy
+  svx record --prompt "What's in this file?"
   ```
 
   To start the GUI frontend:
@@ -139,12 +139,12 @@ You can provide a user prompt, either inline or via a file:
 
 #### User prompt (inline)
 ```
-svx --provider mistral --user-prompt "Transcris puis résume ce qui est dit dans l'audio."
+svx record --user-prompt "Transcris puis résume ce qui est dit dans l'audio."
 ```
 
 #### User prompt from file
 ```
-svx --provider mistral --user-prompt-file prompt/user.md
+svx record --user-prompt-file prompt/user.md
 ```
 
 #### No concatenation
@@ -175,10 +175,12 @@ A single user message is sent containing the audio and (optionally) text.
   - Sends the audio to Whisper (transcription).
   - Prints and saves the transcript.
 
-Additional useful options (to be implemented as flags):
-- `--rate 16000` (sample rate; default 16k or 32k)
-- `--channels 1` (mono)
-- `--keep-wav` (keep the raw WAV after conversion)
+Config-driven options (set these in config.toml under [defaults]):
+- rate, channels, device
+- provider, model, format, language
+- keep_audio_files, copy
+
+One-off CLI overrides:
 - `--outfile-prefix mynote_2025-09-09` (custom file prefix)
 - `--log-level debug` (verbose logs)
 
@@ -188,7 +190,7 @@ Additional useful options (to be implemented as flags):
 
 Alternative invocation (without console script):
 ```
-python -m svx.cli record --provider mistral --format mp3 --prompt "..."
+python -m svx.cli record --prompt "..."
 ```
 
 ---

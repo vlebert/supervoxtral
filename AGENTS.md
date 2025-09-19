@@ -39,7 +39,11 @@ ruff check svx/
 mypy svx/
 
 # Run
-svx --provider mistral --format mp3 --prompt "What's in this file?"
+# Initialize user config (generates config.toml)
+svx config init
+
+# Record (provider/format configured in config.toml)
+svx record --prompt "What's in this file?"
 ```
 
 ## Maintenance

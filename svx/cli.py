@@ -169,50 +169,50 @@ def config_init(
     prompt_path = user_prompt_dir / "user.md"
 
     example_toml = (
-        "# SuperVoxtral - Configuration utilisateur\n"
+        "# SuperVoxtral - User configuration\n"
         "#\n"
-        "# Principe:\n"
-        "# - Cette configuration contrôle le comportement par défaut de `svx record`.\n"
-        "# - Les paramètres ci-dessous remplacent les defaults intégrés au binaire.\n"
-        "# - Overrides ponctuels possibles via CLI:\n"
-        "#     --prompt / --prompt-file (spécifier une consigne pour un run)\n"
-        "#     --log-level (dépannage)\n"
-        "#     --outfile-prefix (nommage ponctuel des sorties)\n"
+        "# Basics:\n"
+        "# - This configuration controls the default behavior of `svx record`.\n"
+        "# - The parameters below override the binary's built-in defaults.\n"
+        "# - You can override a few options at runtime via the CLI:\n"
+        "#     --prompt / --prompt-file (set a one-off prompt for this run)\n"
+        "#     --log-level (debugging)\n"
+        "#     --outfile-prefix (one-off output naming)\n"
         "#\n"
-        "# Authentification:\n"
-        "# - Les clés API doivent être définies dans [env] ci-dessous OU via votre environnement système.\n"
-        "# - Si la variable existe déjà dans l'environnement, la valeur du TOML ne la remplace pas.\n"
+        "# Authentication:\n"
+        "# - API keys can be defined in [env] below OR via your system environment.\n"
+        "# - If a variable already exists in the environment, the TOML value will not overwrite it.\n"
         "[env]\n"
         '# MISTRAL_API_KEY = ""\n\n'
         "[defaults]\n"
-        '# Provider à utiliser (actuellement support: "mistral")\n'
+        '# Provider to use (currently supported: "mistral")\n'
         'provider = "mistral"\n\n'
-        '# Format de fichier envoyé au provider: "wav" | "mp3" | "opus"\n'
-        '# Enregistrement natif en WAV; conversion appliquée si "mp3" ou "opus"\n'
+        '# File format sent to the provider: "wav" | "mp3" | "opus"\n'
+        '# Recording is always WAV; conversion is applied if "mp3" or "opus"\n'
         'format = "opus"\n\n'
-        "# Modèle à utiliser côté provider (exemple pour Mistral Voxtral)\n"
+        "# Model to use on the provider side (example for Mistral Voxtral)\n"
         'model = "voxtral-mini-latest"\n\n'
-        "# Indice de langue (peut aider le provider)\n"
+        "# Language hint (may help the provider)\n"
         'language = "fr"\n\n'
-        "# Paramètres d'enregistrement audio\n"
+        "# Audio recording parameters\n"
         "rate = 16000\n"
         "channels = 1\n"
         'device = ""\n\n'
-        "# Gestion des fichiers audio temporaires:\n"
-        "# - false: supprime les WAV/convertis après transcription\n"
-        "# - true: conserve les fichiers sur disque\n"
+        "# Temporary audio files handling:\n"
+        "# - false: delete WAV/converted files after transcription\n"
+        "# - true: keep files on disk\n"
         "keep_audio_files = false\n\n"
-        "# Copier automatiquement le texte transcrit dans le presse-papiers\n"
+        "# Automatically copy the transcribed text to the system clipboard\n"
         "copy = true\n\n"
-        '# Niveau de logs: "DEBUG" | "INFO" | "WARNING" | "ERROR"\n'
+        '# Log level: "DEBUG" | "INFO" | "WARNING" | "ERROR"\n'
         'log_level = "INFO"\n\n'
         "[prompt]\n"
-        "# Source du prompt utilisateur par défaut:\n"
-        "# - Option 1: Utiliser un fichier (recommandé)\n"
+        "# Default user prompt source:\n"
+        "# - Option 1: Use a file (recommended)\n"
         f'file = "{str(prompt_path)}"\n'
         "#\n"
-        "# - Option 2: Prompt inline (moins recommandé si long)\n"
-        '# text = "Veuillez transcrire l\'audio et fournir un résumé concis en français."\n'
+        "# - Option 2: Inline prompt (less recommended for long text)\n"
+        '# text = "Please transcribe the audio and provide a concise summary in French."\n'
     )
 
     example_prompt = (
