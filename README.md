@@ -7,7 +7,8 @@ MVP scope:
 - API-based transcription only (no on-device models).
 - Primary provider: Mistral Voxtral using “chat with audio” (input_audio + text prompt).
 - Optional provider: OpenAI Whisper for plain transcription.
-- Results saved to `transcripts/`, audio saved to `recordings/`.
+- Zero-footprint defaults: No persistent directories (`recordings/`, `transcripts/`, `logs/`) created unless overridden via config or `--save-all`. Results printed to console and optionally copied to clipboard.
+- Unified CLI/GUI pipeline for consistent recording, transcription, and output handling.
 
 ---
 
@@ -73,16 +74,19 @@ API keys and default behavior are configured only in your user configuration fil
   svx config init
   ```
   This creates:
-  - config.toml (with sensible defaults)
+  - config.toml (with sensible defaults, including zero-footprint mode)
   - a user prompt file at: ~/Library/Application Support/SuperVoxtral/prompt/user.md (macOS)
     - Linux: ${XDG_CONFIG_HOME:-~/.config}/supervoxtral/prompt/user.md
     - Windows: %APPDATA%/SuperVoxtral/prompt/user.md
 
-- Configure the Mistral key:
-  ```
-  [providers.mistral]
-  api_key = "your_mistral_key_here"
-  ```
+**Key config sections (edit `config.toml`):**
+- **[defaults]**: provider (e.g., "mistral"), model, format (e.g., "opus"), language, rate, channels, device, copy (clipboard), keep_audio_files = false, keep_transcript_files = false, keep_log_files = false.
+  - Zero-footprint mode (defaults): When `keep_* = false`, files are handled in OS temporary directories (auto-cleaned, no project dirs created). Set to `true` for persistence (creates `recordings/`, etc.).
+- **[providers.mistral]**: api_key = "your_mistral_key_here", model (e.g., "voxtral-small-latest").
+- **[prompt]**: text (inline prompt), file (path to prompt.md).
+  - Resolution priority: CLI `--prompt`/`--prompt-file` > config.toml [prompt] > user.md fallback > "What's in this audio?".
+
+**Configuration is centralized via a structured `Config` object loaded from your user configuration file (`config.toml`). CLI arguments override select values (e.g., prompt, log level), but most defaults (provider, model, keep flags) come from `config.toml`. No environment variables are used for API keys or settings.**
 
 No `.env` or shell environment variables are used for API keys.
 
@@ -91,13 +95,13 @@ No `.env` or shell environment variables are used for API keys.
 ## Project layout
 
 - `svx/` — package source
-  - `core/` — audio capture, encoding, config, storage
+  - `core/` — audio capture, encoding, config, storage, unified recording/transcription pipeline
   - `providers/` — API providers (Mistral Voxtral, OpenAI Whisper)
-  - `ui/` — TUI (Phase 2)
-- `recordings/` — captured and converted audio files
-- `transcripts/` — API responses (text/JSON)
-- `logs/` — application logs
-- `pyproject.toml` — project metadata and dependencies
+  - `ui/` — GUI/TUI (Qt-based GUI for MVP; TUI planned)
+- recordings/ — captured and converted audio files (created only if keep_audio_files = true or --save-all)
+- transcripts/ — API responses (text/JSON) (created only if keep_transcript_files = true or --save-all)
+- logs/ — application logs (created only if keep_log_files = true or --save-all)
+- pyproject.toml — project metadata and dependencies
 
 ---
 
@@ -110,24 +114,32 @@ General command form:
 svx record [OPTIONS]
 ```
 
-Note: the CLI now exposes a single recording entrypoint. Use `svx record --gui` to launch the GUI frontend. Most defaults (provider, format, model, language, rate, channels, device, keep_audio_files, copy) are configured via your user config (config.toml). The CLI only supports one-off overrides for: --prompt/--prompt-file, --log-level, --outfile-prefix, and --gui.
+**Unified entrypoint**: `svx record` handles both CLI and GUI modes via a centralized pipeline (`svx.core.pipeline.RecordingPipeline`). This ensures consistent behavior for recording, conversion, transcription, saving, clipboard copy, and logging across CLI and GUI.
+
+**Zero-footprint defaults**: No directories created; outputs to console/clipboard. Use `--save-all` or config `keep_* = true` for persistence.
+
+Note: the CLI now exposes a single recording entrypoint. Use `svx record --gui` to launch the GUI frontend. Most defaults (provider, format, model, language, rate, channels, device, keep_audio_files, copy) are configured via your user config (config.toml). The CLI only supports one-off overrides for: --prompt/--prompt-file, --log-level, --outfile-prefix, --gui, --save-all.
 
 Planned MVP commands:
 
-- Record with Mistral Voxtral (chat with audio) and a prompt (provider/format come from config):
+- Record with Mistral Voxtral (chat with audio) and a prompt (provider/format from config):
   ```
   svx record --prompt "What's in this file?"
   ```
-  Tip: to automatically copy the final transcript to your system clipboard, set `copy = true` in your user `config.toml`.
-  Example:
+  Tip: Outputs to console and clipboard (if copy=true in config). No files saved unless overridden.
+
+  Persist all outputs (one-off override):
   ```
-  svx record --prompt "What's in this file?"
+  svx record --save-all --prompt "What's in this file?"
   ```
+  Creates `recordings/`, `transcripts/`, `logs/` and saves files/logs.
 
   To start the GUI frontend:
   ```
   svx record --gui
   ```
+  The GUI uses the same pipeline and respects config + CLI overrides (e.g., `--gui --save-all` propagates persistence).
+
   The CLI defaults have been unified to favour the previous GUI defaults (e.g. `--format opus`, `--copy` enabled, and `--no-keep-audio-files` by default). The final effective values still respect the precedence: CLI explicit > user config defaults (config.toml) > built-in defaults.
 
 ### Advanced prompt management
@@ -154,7 +166,7 @@ Order of precedence for determining the final prompt:
 5) User prompt file in your user config dir (`.../SuperVoxtral/prompt/user.md`)
 6) Default fallback: "What's in this audio?"
 
-Note: the file and inline prompts are not concatenated; the first non-empty source wins.
+Note: the file and inline prompts are not concatenated; the first non-empty source wins. Uses `Config.resolve_prompt()` for unified resolution across CLI/GUI.
 
 If no user prompt is provided (by any of the above), it defaults to "What's in this audio?".
 
@@ -164,7 +176,7 @@ A single user message is sent containing the audio and (optionally) text.
   - Press Enter (or Ctrl+C) to stop recording.
   - Converts WAV to MP3 (if `--format mp3`) or Opus (if `--format opus`).
   - Sends the audio to Mistral Voxtral as base64 input_audio plus your text prompt.
-  - Prints and saves the response to `transcripts/`.
+  - Prints and saves the response to `transcripts/` (if keep_transcript_files=true or --save-all).
 
 - Record with OpenAI Whisper (optional):
   ```
@@ -209,7 +221,7 @@ Recommended formats:
 - MP3 or WAV work well. MP3 reduces file size and upload time.
 
 Authentication:
-- Mistral: key is read from user config at `providers.mistral.api_key` in `config.toml`.
+- Mistral: key read from `Config` (user config at `providers.mistral.api_key`).
 
 ### OpenAI Whisper (optional)
 - Plain transcription from audio file (WAV recommended).
@@ -245,12 +257,15 @@ The tool will send the converted file if you set `--format mp3` or `--format opu
 
 - Phase 1 (MVP):
   - [x] Project skeleton, dependencies, README
-  - [ ] CLI: recording command (manual stop)
-  - [ ] WAV capture (sounddevice/soundfile)
-  - [ ] Conversion via ffmpeg (MP3/Opus)
-  - [ ] Provider: Mistral Voxtral (chat with audio + prompt)
+  - [x] CLI: recording command (manual stop)
+  - [x] WAV capture (sounddevice/soundfile)
+  - [x] Conversion via ffmpeg (MP3/Opus)
+  - [x] Provider: Mistral Voxtral (chat with audio + prompt)
   - [ ] Provider: OpenAI Whisper (optional)
-  - [ ] Store outputs in `transcripts/` + logs
+  - [x] Store outputs in `transcripts/` + logs (conditional on config/overrides)
+  - [x] Unified CLI/GUI pipeline
+  - [x] Centralized Config object
+  - [x] Zero-footprint temp file handling
 
 - Phase 2:
   - [ ] Minimal TUI (Textual) with a STOP button and keybinding
@@ -264,6 +279,8 @@ The tool will send the converted file if you set `--format mp3` or `--format opu
 - “ffmpeg not found”: install via your OS package manager (see Requirements).
 - “PermissionError: Microphone”: grant mic permission in OS settings.
 - “401/403 from provider”: check that `providers.mistral.api_key` is set and valid in your `config.toml`.
+- “API key missing”: Ensure `providers.mistral.api_key` in config.toml; Config.load() validates.
+- No directories created: Normal in zero-footprint mode (keep_*=false). Use `--save-all` or edit config.toml.
 - “Module not found”: ensure your venv is active and `pip install -e .` ran successfully.
 
 ---
@@ -288,16 +305,21 @@ MIT
 
 ## Progress checklist
 ```markdown
-- [x] Initialiser projet (Typer CLI, config.toml)
-- [x] Implémenter l'enregistrement WAV (start/stop par commande)
-- [x] Ajouter conversion optionnelle via ffmpeg (MP3/Opus)
-- [x] Intégrer provider Mistral Voxtral (chat with audio + prompt)
-- [ ] Intégrer provider OpenAI Whisper (optionnel)
-- [x] Stocker résultats dans transcripts/ + logs
-- [x] Ajouter structure projet dans AGENTS.md
-- [ ] Ajouter TUI Textual avec bouton STOP (phase 2)
-- [ ] Préparer prompts/ pour post-processing (phase ultérieure)
-- [x] Rédiger doc d'installation/usage (incl. ffmpeg)
-- [x] Créer AGENTS.md court pour les agents
-- [x] Ajouter gestion des prompts utilisateur (inline/fichier/config)
+- [x] Initialize project (Typer CLI, config.toml)
+- [x] Implement WAV recording (start/stop by command)
+- [x] Add optional conversion via ffmpeg (MP3/Opus)
+- [x] Integrate Mistral Voxtral provider (chat with audio + prompt)
+- [ ] Integrate OpenAI Whisper provider (optional)
+- [x] Store results in transcripts/ + logs (conditional)
+- [x] Add project structure in AGENTS.md
+- [x] Implement Qt-based GUI with stop controls
+- [x] Prepare prompts/ for user prompts (resolution via Config)
+- [x] Refactor to centralized Config object (dataclasses, propagation)
+- [x] Unify CLI/GUI recording pipeline (RecordingPipeline)
+- [x] Implement zero-footprint temp file handling (keep_* flags, --save-all)
+- [ ] Add Textual TUI with STOP button (phase 2)
+- [ ] Prepare prompts/ for post-processing (later phase)
+- [x] Write installation/usage docs (incl. ffmpeg)
+- [x] Create short AGENTS.md for agents
+- [x] Add user prompt management (inline/file/config)
 ```
