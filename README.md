@@ -2,13 +2,6 @@
 
 A simple Python CLI/GUI tool to record audio from your microphone, optionally convert it (WAV/MP3/Opus), and send it to Mistral Voxtral transcription/chat APIs.
 
-MVP scope:
-- Manual stop only (no auto-stop on silence, for now).
-- API-based transcription only (no on-device models).
-- Primary provider: Mistral Voxtral using “chat with audio” (input_audio + text prompt or plain transcription).
-- Zero-footprint defaults: No persistent directories (`recordings/`, `transcripts/`, `logs/`) created unless overridden via config or `--save-all`. Results printed to console and optionally copied to clipboard.
-- Unified CLI/GUI pipeline for consistent recording, transcription, and output handling.
-
 ---
 
 ## Requirements
