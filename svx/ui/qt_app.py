@@ -18,7 +18,6 @@ UI changes in this file:
 from __future__ import annotations
 
 import logging
-import tempfile
 import threading
 from pathlib import Path
 
@@ -34,11 +33,8 @@ from PySide6.QtWidgets import (
 )
 
 import svx.core.config as config
-from svx.core.audio import convert_audio, record_wav, timestamp
-from svx.core.clipboard import copy_to_clipboard
 from svx.core.config import Config
-from svx.core.storage import save_transcript
-from svx.providers import get_provider
+from svx.core.pipeline import RecordingPipeline
 
 __all__ = ["RecorderWindow", "run_gui"]
 
@@ -204,11 +200,15 @@ class RecorderWorker(QObject):
         cfg: Config,
         user_prompt: str | None = None,
         user_prompt_file: Path | None = None,
+        save_all: bool = False,
+        outfile_prefix: str | None = None,
     ) -> None:
         super().__init__()
         self.cfg = cfg
         self.user_prompt = user_prompt
         self.user_prompt_file = user_prompt_file
+        self.save_all = save_all
+        self.outfile_prefix = outfile_prefix
         self._stop_event = threading.Event()
 
     def stop(self) -> None:
@@ -231,116 +231,18 @@ class RecorderWorker(QObject):
         - copy_to_clipboard
         - optionally delete audio files
         """
-        base = self.cfg.defaults.outfile_prefix or f"rec_{timestamp()}"
-        final_user_prompt = self._resolve_user_prompt()
-        keep_audio = self.cfg.defaults.keep_audio_files
-        keep_transcript = self.cfg.defaults.keep_transcript_files
-
         try:
-            if keep_audio:
-                self.cfg.recordings_dir.mkdir(parents=True, exist_ok=True)
-                wav_path = self.cfg.recordings_dir / f"{base}.wav"
-                to_send_path = wav_path
-
-                # 1) Record
-                self.status.emit("Recording...")
-                duration = record_wav(
-                    wav_path,
-                    samplerate=self.cfg.defaults.rate,
-                    channels=self.cfg.defaults.channels,
-                    device=self.cfg.defaults.device,
-                    stop_event=self._stop_event,
-                )
-
-                # 2) Convert if requested
-                if self.cfg.defaults.format in {"mp3", "opus"}:
-                    self.status.emit("Converting...")
-                    to_send_path = convert_audio(wav_path, self.cfg.defaults.format)
-            else:
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    tmp_path = Path(tmpdir)
-                    wav_path = tmp_path / f"{base}.wav"
-                    to_send_path = wav_path
-
-                    # 1) Record
-                    self.status.emit("Recording...")
-                    duration = record_wav(
-                        wav_path,
-                        samplerate=self.cfg.defaults.rate,
-                        channels=self.cfg.defaults.channels,
-                        device=self.cfg.defaults.device,
-                        stop_event=self._stop_event,
-                    )
-
-                    # 2) Convert if requested
-                    if self.cfg.defaults.format in {"mp3", "opus"}:
-                        self.status.emit("Converting...")
-                        to_send_path = convert_audio(wav_path, self.cfg.defaults.format)
-
-                    # 3) Transcribe
-                    self.status.emit("Transcribing...")
-                    prov = get_provider(self.cfg.defaults.provider, cfg=self.cfg)
-                    result = prov.transcribe(
-                        to_send_path,
-                        user_prompt=final_user_prompt,
-                        model=self.cfg.defaults.model,
-                        language=self.cfg.defaults.language,
-                    )
-                    text = result["text"]
-                    raw = result["raw"]
-
-                    # 4) Save outputs if enabled
-                    if keep_transcript:
-                        self.cfg.transcripts_dir.mkdir(parents=True, exist_ok=True)
-                        save_transcript(
-                            self.cfg.transcripts_dir, base, self.cfg.defaults.provider, text, raw
-                        )
-
-                    # 5) Copy to clipboard
-                    if self.cfg.defaults.copy:
-                        try:
-                            copy_to_clipboard(text)
-                        except Exception as e:
-                            logging.warning("Failed to copy transcript to clipboard: %s", e)
-
-                    # 7) Done
-                    logging.info("Recording/transcription finished (%.2fs)", duration)
-                    self.done.emit(text)
-                    return
-
-            # For keep_audio=True: continue to transcribe and save outside the with
-            # 3) Transcribe
-            self.status.emit("Transcribing...")
-            prov = get_provider(self.cfg.defaults.provider, cfg=self.cfg)
-            result = prov.transcribe(
-                to_send_path,
-                user_prompt=final_user_prompt,
-                model=self.cfg.defaults.model,
-                language=self.cfg.defaults.language,
+            pipeline = RecordingPipeline(
+                cfg=self.cfg,
+                user_prompt=self.user_prompt,
+                user_prompt_file=self.user_prompt_file,
+                save_all=self.save_all,
+                outfile_prefix=self.outfile_prefix,
+                progress_callback=self.status.emit,
             )
-            text = result["text"]
-            raw = result["raw"]
-
-            # 4) Save outputs if enabled
-            if keep_transcript:
-                self.cfg.transcripts_dir.mkdir(parents=True, exist_ok=True)
-                save_transcript(
-                    self.cfg.transcripts_dir, base, self.cfg.defaults.provider, text, raw
-                )
-            else:
-                pass
-
-            # 5) Copy to clipboard
-            if self.cfg.defaults.copy:
-                try:
-                    copy_to_clipboard(text)
-                except Exception as e:
-                    logging.warning("Failed to copy transcript to clipboard: %s", e)
-
-            # 7) Done
-            logging.info("Recording/transcription finished (%.2fs)", duration)
-            self.done.emit(text)
-        except Exception as e:  # broad except to surface to the UI
+            result = pipeline.run(stop_event=self._stop_event)
+            self.done.emit(result["text"])
+        except Exception as e:
             logging.exception("Pipeline failed")
             self.error.emit(str(e))
 
@@ -360,12 +262,16 @@ class RecorderWindow(QWidget):
         cfg: Config,
         user_prompt: str | None = None,
         user_prompt_file: Path | None = None,
+        save_all: bool = False,
+        outfile_prefix: str | None = None,
     ) -> None:
         super().__init__()
 
         self.cfg = cfg
         self.user_prompt = user_prompt
         self.user_prompt_file = user_prompt_file
+        self.save_all = save_all
+        self.outfile_prefix = outfile_prefix
 
         # Environment and prompt files
 
@@ -444,6 +350,8 @@ class RecorderWindow(QWidget):
             cfg=self.cfg,
             user_prompt=user_prompt,
             user_prompt_file=user_prompt_file,
+            save_all=save_all,
+            outfile_prefix=outfile_prefix,
         )
         self._thread = threading.Thread(target=self._worker.run, daemon=True)
 
@@ -542,6 +450,8 @@ def run_gui(
     cfg: Config | None = None,
     user_prompt: str | None = None,
     user_prompt_file: Path | None = None,
+    save_all: bool = False,
+    outfile_prefix: str | None = None,
     log_level: str = "INFO",
 ) -> None:
     if cfg is None:
@@ -565,6 +475,8 @@ def run_gui(
         cfg=cfg,
         user_prompt=user_prompt,
         user_prompt_file=user_prompt_file,
+        save_all=save_all,
+        outfile_prefix=outfile_prefix,
     )
     window.show()
     app.exec()

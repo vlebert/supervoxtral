@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import tempfile
 import threading
 from dataclasses import asdict
 from pathlib import Path
@@ -12,15 +11,12 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 
 import svx.core.config as config
-from svx.core.audio import convert_audio, record_wav, timestamp
-from svx.core.clipboard import copy_to_clipboard
 from svx.core.config import (
     Config,
     ProviderConfig,
 )
+from svx.core.pipeline import RecordingPipeline
 from svx.core.prompt import init_user_prompt_file
-from svx.core.storage import save_transcript
-from svx.providers import get_provider
 
 app = typer.Typer(help="SuperVoxtral CLI: record audio and send to transcription/chat providers.")
 console = Console()
@@ -180,45 +176,6 @@ def record(
     """
     cfg = Config.load(log_level=log_level)
 
-    if save_all:
-        cfg.defaults.keep_audio_files = True
-        cfg.defaults.keep_transcript_files = True
-        cfg.defaults.keep_log_files = True
-        # Ensure all output directories exist
-        config.RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
-        config.TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
-        config.LOGS_DIR.mkdir(parents=True, exist_ok=True)
-        # Add file logging if not already present
-        root_logger = logging.getLogger()
-        if not any(isinstance(h, logging.FileHandler) for h in root_logger.handlers):
-            from svx.core.config import _get_log_level
-
-            log_level_int = _get_log_level(cfg.defaults.log_level)
-            formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
-            file_handler = logging.FileHandler(config.LOGS_DIR / "app.log", encoding="utf-8")
-            file_handler.setLevel(log_level_int)
-            file_handler.setFormatter(formatter)
-            root_logger.addHandler(file_handler)
-
-    # Resolve effective runtime parameters from config object
-    provider = cfg.defaults.provider
-    audio_format = cfg.defaults.format
-    model = cfg.defaults.model
-    language = cfg.defaults.language
-    rate = cfg.defaults.rate
-    channels = cfg.defaults.channels
-    device = cfg.defaults.device
-    if outfile_prefix is None:
-        outfile_prefix = cfg.defaults.outfile_prefix
-
-    # Basic validation (fail fast for obvious misconfiguration)
-    if cfg.defaults.channels not in (1, 2):
-        raise typer.BadParameter("channels must be 1 or 2 (configured in config.toml)")
-    if cfg.defaults.rate <= 0:
-        raise typer.BadParameter("rate must be > 0 (configured in config.toml)")
-    if cfg.defaults.format not in {"wav", "mp3", "opus"}:
-        raise typer.BadParameter("format must be one of wav|mp3|opus (configured in config.toml)")
-
     # If GUI requested, launch GUI with the resolved parameters and exit.
     if gui:
         from svx.ui.qt_app import run_gui
@@ -228,15 +185,16 @@ def record(
             cfg=cfg,
             user_prompt=user_prompt,
             user_prompt_file=user_prompt_file,
+            save_all=save_all,
+            outfile_prefix=outfile_prefix,
         )
         return
 
-    # Prepare base name
-    base = outfile_prefix or f"rec_{timestamp()}"
-    keep_audio = cfg.defaults.keep_audio_files
-    keep_transcript = cfg.defaults.keep_transcript_files
-
     try:
+
+        def progress_cb(msg: str) -> None:
+            console.print(f"[bold cyan]{msg}[/bold cyan]")
+
         stop_event = threading.Event()
         console.print(Panel.fit("Recording... Press Enter to stop.", title="SuperVoxtral"))
 
@@ -251,90 +209,33 @@ def record(
         waiter = threading.Thread(target=_wait_for_enter, daemon=True)
         waiter.start()
 
-        final_user_prompt: str = cfg.resolve_prompt(user_prompt, user_prompt_file)
+        pipeline = RecordingPipeline(
+            cfg=cfg,
+            user_prompt=user_prompt,
+            user_prompt_file=user_prompt_file,
+            save_all=save_all,
+            outfile_prefix=outfile_prefix,
+            progress_callback=progress_cb,
+        )
+        result = pipeline.run(stop_event=stop_event)
+        waiter.join()
 
-        if keep_audio:
-            cfg.recordings_dir.mkdir(parents=True, exist_ok=True)
-            wav_path = cfg.recordings_dir / f"{base}.wav"
-            duration = record_wav(
-                wav_path, samplerate=rate, channels=channels, device=device, stop_event=stop_event
-            )
-            waiter.join()
-            console.print(f"Stopped. Recorded {duration:.1f}s to {wav_path}")
-
-            # Optional conversion
-            to_send_path = wav_path
-            if audio_format in {"mp3", "opus"}:
-                to_send_path = convert_audio(wav_path, audio_format)
-                logging.info("Converted %s -> %s", wav_path, to_send_path)
-
-            # Provider handling via registry
-            try:
-                prov = get_provider(provider, cfg=cfg)
-            except KeyError as e:
-                raise typer.BadParameter(str(e))
-
-            result = prov.transcribe(
-                to_send_path,
-                user_prompt=final_user_prompt,
-                model=model,
-                language=language,
-            )
-        else:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                tmp_path = Path(tmpdir)
-                wav_path = tmp_path / f"{base}.wav"
-                duration = record_wav(
-                    wav_path,
-                    samplerate=rate,
-                    channels=channels,
-                    device=device,
-                    stop_event=stop_event,
-                )
-                waiter.join()
-                console.print(f"Stopped. Recorded {duration:.1f}s (temporary file)")
-
-                # Optional conversion
-                to_send_path = wav_path
-                if audio_format in {"mp3", "opus"}:
-                    to_send_path = convert_audio(wav_path, audio_format)
-                    logging.info("Converted %s -> %s", wav_path, to_send_path)
-
-                # Provider handling via registry
-                try:
-                    prov = get_provider(provider, cfg=cfg)
-                except KeyError as e:
-                    raise typer.BadParameter(str(e))
-
-                result = prov.transcribe(
-                    to_send_path,
-                    user_prompt=final_user_prompt,
-                    model=model,
-                    language=language,
-                )
-
-        # Common output and persistence (after recording/transcription)
         text = result["text"]
-        raw = result["raw"]
-        console.print(Panel.fit(text, title=f"{provider.capitalize()} Response"))
+        duration = result["duration"]
+        paths = result["paths"]
 
-        if keep_transcript:
-            cfg.transcripts_dir.mkdir(parents=True, exist_ok=True)
-            txt_path, json_path = save_transcript(cfg.transcripts_dir, base, provider, text, raw)
-            console.print(f"Saved transcript: {txt_path}")
-            if json_path:
-                console.print(f"Saved raw JSON: {json_path}")
+        console.print(f"Recording completed in {duration:.1f}s")
+        if paths.get("wav"):
+            console.print(f"Audio saved to {paths['wav']}")
         else:
-            txt_path, json_path = None, None
+            console.print("Audio file (temporary) deleted after processing.")
 
-        # Optional: copy the transcript text to the system clipboard
-        if cfg.defaults.copy:
-            try:
-                copy_to_clipboard(text)
-                console.print("Transcription copied to clipboard.")
-            except Exception as e:
-                logging.warning("Failed to copy transcript to clipboard: %s", e)
-                console.print("Warning: failed to copy transcription to clipboard.")
+        console.print(Panel.fit(text, title=f"{cfg.defaults.provider.capitalize()} Response"))
+
+        if paths.get("txt"):
+            console.print(f"Saved transcript: {paths['txt']}")
+        if paths.get("json"):
+            console.print(f"Saved raw JSON: {paths['json']}")
 
     except Exception as e:
         logging.exception("Error in record command")
