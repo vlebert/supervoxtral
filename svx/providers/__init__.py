@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from svx.core.config import Config
+
 from .base import Provider, ProviderError, TranscriptionResult
 
 __all__ = [
@@ -27,7 +29,7 @@ __all__ = [
 ]
 
 # Factory callable that returns a Provider instance when called.
-ProviderFactory = Callable[[], Provider]
+ProviderFactory = Callable[[Config | None], Provider]
 
 # Internal registry mapping provider name -> factory
 _registry: dict[str, ProviderFactory] = {}
@@ -44,7 +46,7 @@ def register_provider(name: str, factory: ProviderFactory) -> None:
     _registry[key] = factory
 
 
-def get_provider(name: str) -> Provider:
+def get_provider(name: str, cfg: Config | None = None) -> Provider:
     """
     Retrieve a Provider instance by name.
 
@@ -58,7 +60,7 @@ def get_provider(name: str) -> Provider:
     except KeyError as e:
         available = ", ".join(sorted(_registry.keys())) or "(none)"
         raise KeyError(f"Unknown provider '{name}'. Available: {available}") from e
-    return factory()
+    return factory(cfg)
 
 
 def available_providers() -> list[str]:
@@ -77,10 +79,10 @@ def register_default_providers() -> None:
     # Mistral (voxtral) provider
     if "mistral" not in _registry:
 
-        def _mistral_factory() -> Provider:
+        def _mistral_factory(cfg: Config | None = None) -> Provider:
             # Lazy import to avoid requiring 'mistralai' until the provider is actually used.
             from .mistral import MistralProvider
 
-            return MistralProvider()
+            return MistralProvider(cfg=cfg)
 
         register_provider("mistral", _mistral_factory)

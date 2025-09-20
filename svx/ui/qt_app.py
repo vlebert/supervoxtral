@@ -34,8 +34,8 @@ from PySide6.QtWidgets import (
 
 import svx.core.config as config
 from svx.core.audio import convert_audio, record_wav, timestamp
-from svx.core.clipboard import ClipboardError, copy_to_clipboard
-from svx.core.prompt import resolve_user_prompt
+from svx.core.clipboard import copy_to_clipboard
+from svx.core.config import Config
 from svx.core.storage import save_transcript
 from svx.providers import get_provider
 
@@ -200,30 +200,12 @@ class RecorderWorker(QObject):
 
     def __init__(
         self,
-        provider: str,
-        audio_format: str,
-        model: str,
-        language: str | None,
-        rate: int,
-        channels: int,
-        device: str | None,
-        keep_audio_files: bool,
-        outfile_prefix: str | None,
-        do_copy: bool,
-        user_prompt: str | None,
-        user_prompt_file: Path | None,
+        cfg: Config,
+        user_prompt: str | None = None,
+        user_prompt_file: Path | None = None,
     ) -> None:
         super().__init__()
-        self.provider = provider
-        self.audio_format = audio_format
-        self.model = model
-        self.language = language
-        self.rate = rate
-        self.channels = channels
-        self.device = device
-        self.keep_audio_files = keep_audio_files
-        self.outfile_prefix = outfile_prefix
-        self.do_copy = do_copy
+        self.cfg = cfg
         self.user_prompt = user_prompt
         self.user_prompt_file = user_prompt_file
         self._stop_event = threading.Event()
@@ -236,13 +218,7 @@ class RecorderWorker(QObject):
         """
         Determine the final user prompt using the shared resolver.
         """
-        user_cfg = config.load_user_config() or {}
-        return resolve_user_prompt(
-            user_cfg,
-            self.user_prompt,
-            self.user_prompt_file,
-            config.USER_PROMPT_DIR,
-        )
+        return self.cfg.resolve_prompt(self.user_prompt, self.user_prompt_file)
 
     def run(self) -> None:
         """
@@ -254,8 +230,8 @@ class RecorderWorker(QObject):
         - copy_to_clipboard
         - optionally delete audio files
         """
-        base = self.outfile_prefix or f"rec_{timestamp()}"
-        wav_path = config.RECORDINGS_DIR / f"{base}.wav"
+        base = self.cfg.defaults.outfile_prefix or f"rec_{timestamp()}"
+        wav_path = self.cfg.recordings_dir / f"{base}.wav"
         to_send_path = wav_path
 
         try:
@@ -263,42 +239,42 @@ class RecorderWorker(QObject):
             self.status.emit("Recording...")
             duration = record_wav(
                 wav_path,
-                samplerate=self.rate,
-                channels=self.channels,
-                device=self.device,
+                samplerate=self.cfg.defaults.rate,
+                channels=self.cfg.defaults.channels,
+                device=self.cfg.defaults.device,
                 stop_event=self._stop_event,
             )
 
             # 2) Convert if requested
-            if self.audio_format in {"mp3", "opus"}:
+            if self.cfg.defaults.format in {"mp3", "opus"}:
                 self.status.emit("Converting...")
-                to_send_path = convert_audio(wav_path, self.audio_format)
+                to_send_path = convert_audio(wav_path, self.cfg.defaults.format)
 
             # 3) Transcribe
             self.status.emit("Transcribing...")
             final_user_prompt = self._resolve_user_prompt()
-            prov = get_provider(self.provider)
+            prov = get_provider(self.cfg.defaults.provider, cfg=self.cfg)
             result = prov.transcribe(
                 to_send_path,
                 user_prompt=final_user_prompt,
-                model=self.model,
-                language=self.language,
+                model=self.cfg.defaults.model,
+                language=self.cfg.defaults.language,
             )
             text = result["text"]
             raw = result["raw"]
 
             # 4) Save outputs
-            save_transcript(config.TRANSCRIPTS_DIR, base, self.provider, text, raw)
+            save_transcript(self.cfg.transcripts_dir, base, self.cfg.defaults.provider, text, raw)
 
             # 5) Copy to clipboard
-            if self.do_copy:
+            if self.cfg.defaults.copy:
                 try:
                     copy_to_clipboard(text)
-                except ClipboardError as e:
+                except Exception as e:
                     logging.warning("Failed to copy transcript to clipboard: %s", e)
 
             # 6) Cleanup audio files if requested
-            if not self.keep_audio_files:
+            if not self.cfg.defaults.keep_audio_files:
                 try:
                     if wav_path.exists():
                         wav_path.unlink(missing_ok=True)
@@ -327,24 +303,18 @@ class RecorderWindow(QWidget):
 
     def __init__(
         self,
-        provider: str = "mistral",
-        audio_format: str = "opus",
-        model: str = "voxtral-small-latest",
-        language: str | None = None,
-        rate: int = 16000,
-        channels: int = 1,
-        device: str | None = None,
-        keep_audio_files: bool = False,
-        outfile_prefix: str | None = None,
-        do_copy: bool = True,
-        log_level: str = "INFO",
+        cfg: Config,
         user_prompt: str | None = None,
         user_prompt_file: Path | None = None,
     ) -> None:
         super().__init__()
 
+        self.cfg = cfg
+        self.user_prompt = user_prompt
+        self.user_prompt_file = user_prompt_file
+
         # Environment and prompt files
-        config.setup_environment(log_level=log_level)
+        config.setup_environment(log_level=cfg.defaults.log_level)
 
         # Window basics
         self.setObjectName("recorder_window")
@@ -370,12 +340,12 @@ class RecorderWindow(QWidget):
 
         # Minimal geek status line under waveform (colored + bullets)
         sep = "<span style='color:#8b949e'> • </span>"
-        prov_model_html = f"<span style='color:#7ee787'>{provider}/{model}</span>"
-        format_html = f"<span style='color:#ffa657'>{audio_format}</span>"
-        rate_html = f"<span style='color:#a5d6ff'>{rate // 1000}k/{channels}ch</span>"
+        prov_model_html = f"<span style='color:#7ee787'>{self.cfg.defaults.provider}/{self.cfg.defaults.model}</span>"
+        format_html = f"<span style='color:#ffa657'>{self.cfg.defaults.format}</span>"
+        rate_html = f"<span style='color:#a5d6ff'>{self.cfg.defaults.rate // 1000}k/{self.cfg.defaults.channels}ch</span>"
         parts = [prov_model_html, format_html, rate_html]
-        if language:
-            lang_html = f"<span style='color:#c9b4ff'>{language}</span>"
+        if self.cfg.defaults.language:
+            lang_html = f"<span style='color:#c9b4ff'>{self.cfg.defaults.language}</span>"
             parts.append(lang_html)
         info_core = sep.join(parts)
         info_line = (
@@ -405,16 +375,7 @@ class RecorderWindow(QWidget):
 
         # Background worker
         self._worker = RecorderWorker(
-            provider=provider,
-            audio_format=audio_format,
-            model=model,
-            language=language,
-            rate=rate,
-            channels=channels,
-            device=device,
-            keep_audio_files=keep_audio_files,
-            outfile_prefix=outfile_prefix,
-            do_copy=do_copy,
+            cfg=self.cfg,
             user_prompt=user_prompt,
             user_prompt_file=user_prompt_file,
         )
@@ -512,53 +473,17 @@ class RecorderWindow(QWidget):
 
 
 def run_gui(
-    provider: str = "mistral",
-    audio_format: str = "opus",
-    model: str = "voxtral-small-latest",
-    language: str | None = None,
-    rate: int = 16000,
-    channels: int = 1,
-    device: str | None = None,
-    keep_audio_files: bool = False,
-    outfile_prefix: str | None = None,
-    do_copy: bool = True,
-    log_level: str = "INFO",
+    cfg: Config | None = None,
     user_prompt: str | None = None,
     user_prompt_file: Path | None = None,
+    log_level: str = "INFO",
 ) -> None:
+    if cfg is None:
+        cfg = Config.load(log_level=log_level)
     """
     Launch the PySide6 app with the minimal recorder window.
-
-    Args mirror the CLI options, with defaults matching:
-      --provider mistral --format opus --copy --no-keep-audio-files
     """
-    # Apply user defaults before launching the app
     config.setup_environment(log_level=log_level)
-    user_cfg = config.load_user_config() or {}
-
-    user_defaults = user_cfg.get("defaults") or {}
-    if provider == "mistral" and "provider" in user_defaults:
-        provider = user_defaults["provider"]
-    if audio_format == "opus" and "format" in user_defaults:
-        audio_format = user_defaults["format"]
-    if model == "voxtral-small-latest" and "model" in user_defaults:
-        model = user_defaults["model"]
-    if language is None and "language" in user_defaults:
-        language = user_defaults["language"]
-    if rate == 16000 and "rate" in user_defaults:
-        rate = int(user_defaults["rate"])
-    if channels == 1 and "channels" in user_defaults:
-        channels = int(user_defaults["channels"])
-    if device is None and "device" in user_defaults:
-        device = user_defaults["device"] or None
-    if keep_audio_files is False and "keep_audio_files" in user_defaults:
-        keep_audio_files = bool(user_defaults["keep_audio_files"])
-    if outfile_prefix is None and "outfile_prefix" in user_defaults:
-        outfile_prefix = user_defaults["outfile_prefix"] or None
-    if do_copy is True and "copy" in user_defaults:
-        do_copy = bool(user_defaults["copy"])
-    if log_level == "INFO" and "log_level" in user_defaults:
-        log_level = str(user_defaults["log_level"])
 
     app = QApplication.instance() or QApplication([])
     if isinstance(app, QApplication):
@@ -571,17 +496,7 @@ def run_gui(
         app.setStyleSheet(existing + DARK_MONO_STYLESHEET)
 
     window = RecorderWindow(
-        provider=provider,
-        audio_format=audio_format,
-        model=model,
-        language=language,
-        rate=rate,
-        channels=channels,
-        device=device,
-        keep_audio_files=keep_audio_files,
-        outfile_prefix=outfile_prefix,
-        do_copy=do_copy,
-        log_level=log_level,
+        cfg=cfg,
         user_prompt=user_prompt,
         user_prompt_file=user_prompt_file,
     )

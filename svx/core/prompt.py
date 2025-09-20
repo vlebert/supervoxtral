@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from .config import USER_PROMPT_DIR
+from .config import USER_PROMPT_DIR, Config
 
 __all__ = [
     "read_text_file",
@@ -64,18 +64,18 @@ def resolve_prompt(inline: str | None, file_path: Path | None) -> str | None:
 
 
 def resolve_user_prompt(
-    user_cfg: dict[str, object] | None,
-    inline: str | None,
-    file: Path | None,
-    user_prompt_dir: Path,
+    cfg: Config,
+    inline: str | None = None,
+    file: Path | None = None,
+    user_prompt_dir: Path | None = None,
 ) -> str:
     """
     Resolve the effective user prompt from multiple sources, by priority:
 
     1) inline text (CLI --user-prompt)
     2) explicit file (CLI --user-prompt-file)
-    3) user config inline text (user_cfg['prompt']['text'])
-    4) user config file path (user_cfg['prompt']['file'])
+    3) user config inline text (cfg.prompt.text)
+    4) user config file path (cfg.prompt.file)
     5) user prompt dir file (user_prompt_dir / 'user.md')
     6) literal fallback: "What's in this audio?"
 
@@ -96,13 +96,11 @@ def resolve_user_prompt(
 
     def _from_user_cfg() -> str:
         try:
-            cfg_prompt = (user_cfg or {}).get("prompt") if isinstance(user_cfg, dict) else None
-            if not isinstance(cfg_prompt, dict):
-                return ""
-            cfg_text = cfg_prompt.get("text")
+            cfg_prompt = cfg.prompt
+            cfg_text = cfg_prompt.text
             if isinstance(cfg_text, str) and cfg_text.strip():
                 return cfg_text.strip()
-            cfg_file = cfg_prompt.get("file")
+            cfg_file = cfg_prompt.file
             if isinstance(cfg_file, str) and cfg_file.strip():
                 return read_text_file(Path(cfg_file).expanduser()).strip()
         except Exception:
@@ -111,11 +109,14 @@ def resolve_user_prompt(
 
     def _from_user_prompt_dir() -> str:
         try:
-            upath = Path(user_prompt_dir) / "user.md"
+            upath = Path(user_prompt_dir or cfg.user_prompt_dir) / "user.md"
             if upath.exists():
                 return read_text_file(upath).strip()
         except Exception:
-            logging.debug("Could not read user prompt in user prompt dir: %s", user_prompt_dir)
+            logging.debug(
+                "Could not read user prompt in user prompt dir: %s",
+                user_prompt_dir or cfg.user_prompt_dir,
+            )
         return ""
 
     suppliers = [

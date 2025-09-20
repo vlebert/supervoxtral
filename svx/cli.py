@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 import threading
+from dataclasses import asdict
 from pathlib import Path
-from typing import Any
 
 import typer
 from rich.console import Console
@@ -13,8 +13,12 @@ from rich.prompt import Prompt
 import svx.core.config as config
 from svx.core.audio import convert_audio, record_wav, timestamp
 from svx.core.clipboard import copy_to_clipboard
-from svx.core.config import RECORDINGS_DIR, TRANSCRIPTS_DIR, setup_environment
-from svx.core.prompt import init_user_prompt_file, resolve_user_prompt
+from svx.core.config import (
+    Config,
+    ProviderConfig,
+    setup_environment,
+)
+from svx.core.prompt import init_user_prompt_file
 from svx.core.storage import save_transcript
 from svx.providers import get_provider
 
@@ -51,8 +55,7 @@ def config_show() -> None:
     # Ensure base environment and directories are available (but do not change user state)
     config.setup_environment(log_level="INFO")
 
-    # Load and apply user config (non-destructive to existing environment)
-    user_cfg = config.load_user_config() or {}
+    cfg = Config.load()
 
     # Helper to mask secrets for display
     def _mask_secret(val: str | None, keep: int = 4) -> str:
@@ -66,54 +69,23 @@ def config_show() -> None:
         except Exception:
             return "(error)"
 
-    providers_section = user_cfg.get("providers") or {}
-    mistral_section = providers_section.get("mistral") or {}
-    mistral_key = str(mistral_section.get("api_key") or "")
+    mistral_key = str(cfg.providers.get("mistral", ProviderConfig()).api_key or "")
 
     # Gather info
-    user_config_file = config.USER_CONFIG_FILE
-    user_prompt_file = config.USER_PROMPT_DIR / "user.md"
+    user_config_file = cfg.user_config_file
+    user_prompt_file = cfg.user_prompt_dir / "user.md"
 
-    defaults_section = user_cfg.get("defaults") or {}
-    prompt_section = user_cfg.get("prompt") or {}
+    defaults_section = asdict(cfg.defaults)
+    prompt_section = asdict(cfg.prompt)
 
     # Resolve prompt source (same logic as record command, but read-only)
-    resolved_prompt_source = None
-    resolved_prompt_excerpt = None
-    # 1) config prompt.text
-    if isinstance(prompt_section, dict) and prompt_section.get("text"):
-        resolved_prompt_source = "user config [prompt].text"
-        resolved_prompt_excerpt = str(prompt_section.get("text")).strip()
-    # 2) config prompt.file
-    if (
-        not resolved_prompt_source
-        and isinstance(prompt_section, dict)
-        and prompt_section.get("file")
-    ):
-        try:
-            p = Path(str(prompt_section.get("file"))).expanduser()
-            if p.exists():
-                resolved_prompt_source = f"user config file: {p}"
-                resolved_prompt_excerpt = p.read_text(encoding="utf-8").strip()
-        except Exception:
-            pass
-    # 3) user prompt dir
-    if not resolved_prompt_source and user_prompt_file.exists():
-        try:
-            t = user_prompt_file.read_text(encoding="utf-8").strip()
-            if t:
-                resolved_prompt_source = f"user prompt file: {user_prompt_file}"
-                resolved_prompt_excerpt = t
-        except Exception:
-            pass
-
-    if not resolved_prompt_source:
-        resolved_prompt_source = "fallback (builtin)"
-        resolved_prompt_excerpt = "What's in this audio?"
+    resolved_prompt = cfg.resolve_prompt(None, None)
+    resolved_prompt_source = "resolved from config"
+    resolved_prompt_excerpt = resolved_prompt
 
     # Short excerpt
-    excerpt = (resolved_prompt_excerpt or "").replace("\n", " ")[:200]
-    if len(resolved_prompt_excerpt or "") > 200:
+    excerpt = resolved_prompt_excerpt.replace("\n", " ")[:200]
+    if len(resolved_prompt_excerpt) > 200:
         excerpt += "..."
 
     # Print summary
@@ -204,76 +176,42 @@ def record(
     # Initial environment + logging according to CLI-provided log_level
     setup_environment(log_level=log_level)
 
-    # Load user config and apply any environment vars it defines (without overwriting existing env)
-    user_config = config.load_user_config() or {}
+    cfg = Config.load(log_level=log_level)
 
-    # Read defaults from user config (now authoritative for most runtime options)
-    user_defaults: dict[str, Any] = {}
-    try:
-        user_defaults = user_config.get("defaults") or {}
-        if not isinstance(user_defaults, dict):
-            user_defaults = {}
-    except Exception:
-        user_defaults = {}
-
-    # Resolve effective runtime parameters from user config with sensible fallbacks
-    provider = str(user_defaults.get("provider", "mistral"))
-    audio_format = str(user_defaults.get("format", "opus"))
-    model = str(user_defaults.get("model", "voxtral-mini-latest"))
-    language = user_defaults.get("language") or None
-    try:
-        rate = int(user_defaults.get("rate", 16000))
-    except Exception:
-        rate = 16000
-    try:
-        channels = int(user_defaults.get("channels", 1))
-    except Exception:
-        channels = 1
-    device = user_defaults.get("device") or None
-    keep_audio_files = bool(user_defaults.get("keep_audio_files", False))
-    copy = bool(user_defaults.get("copy", True))
+    # Resolve effective runtime parameters from config object
+    provider = cfg.defaults.provider
+    audio_format = cfg.defaults.format
+    model = cfg.defaults.model
+    language = cfg.defaults.language
+    rate = cfg.defaults.rate
+    channels = cfg.defaults.channels
+    device = cfg.defaults.device
     if outfile_prefix is None:
-        outfile_prefix = user_defaults.get("outfile_prefix") or None
-
-    # If user_config specifies a log_level, apply it (this overrides the CLI-provided one)
-    if "log_level" in user_defaults:
-        configured_level = str(user_defaults["log_level"])
-        logging.getLogger().setLevel(logging.getLevelName(configured_level))
-        log_level = configured_level
+        outfile_prefix = cfg.defaults.outfile_prefix
 
     # Basic validation (fail fast for obvious misconfiguration)
-    if channels not in (1, 2):
+    if cfg.defaults.channels not in (1, 2):
         raise typer.BadParameter("channels must be 1 or 2 (configured in config.toml)")
-    if rate <= 0:
+    if cfg.defaults.rate <= 0:
         raise typer.BadParameter("rate must be > 0 (configured in config.toml)")
-    if audio_format not in {"wav", "mp3", "opus"}:
+    if cfg.defaults.format not in {"wav", "mp3", "opus"}:
         raise typer.BadParameter("format must be one of wav|mp3|opus (configured in config.toml)")
 
     # If GUI requested, launch GUI with the resolved parameters and exit.
     if gui:
         from svx.ui.qt_app import run_gui
 
-        # Map current parameters to the GUI call (do_copy maps to copy)
+        # Pass config object to the GUI call
         run_gui(
-            provider=provider,
-            audio_format=audio_format,
+            cfg=cfg,
             user_prompt=user_prompt,
             user_prompt_file=user_prompt_file,
-            model=model,
-            language=language,
-            rate=rate,
-            channels=channels,
-            device=device,
-            keep_audio_files=keep_audio_files,
-            outfile_prefix=outfile_prefix,
-            do_copy=copy,
-            log_level=log_level,
         )
         return
 
     # Prepare paths
     base = outfile_prefix or f"rec_{timestamp()}"
-    wav_path = RECORDINGS_DIR / f"{base}.wav"
+    wav_path = cfg.recordings_dir / f"{base}.wav"
 
     try:
         # Recording (press Enter to stop)
@@ -302,16 +240,11 @@ def record(
             to_send_path = convert_audio(wav_path, audio_format)
             logging.info("Converted %s -> %s", wav_path, to_send_path)
 
-        final_user_prompt: str = resolve_user_prompt(
-            user_config,
-            user_prompt,
-            user_prompt_file,
-            config.USER_PROMPT_DIR,
-        )
+        final_user_prompt: str = cfg.resolve_prompt(user_prompt, user_prompt_file)
 
         # Provider handling via registry
         try:
-            prov = get_provider(provider)
+            prov = get_provider(provider, cfg=cfg)
         except KeyError as e:
             raise typer.BadParameter(str(e))
 
@@ -326,13 +259,13 @@ def record(
         text = result["text"]
         raw = result["raw"]
         console.print(Panel.fit(text, title=f"{provider.capitalize()} Response"))
-        txt_path, json_path = save_transcript(TRANSCRIPTS_DIR, base, provider, text, raw)
+        txt_path, json_path = save_transcript(cfg.transcripts_dir, base, provider, text, raw)
         console.print(f"Saved transcript: {txt_path}")
         if json_path:
             console.print(f"Saved raw JSON: {json_path}")
 
         # Optional: copy the transcript text to the system clipboard
-        if copy:
+        if cfg.defaults.copy:
             try:
                 copy_to_clipboard(text)
                 console.print("Transcription copied to clipboard.")
@@ -342,7 +275,7 @@ def record(
 
         # Post-processing deletion policy (controlled by config.toml keep_audio_files)
         try:
-            if not keep_audio_files:
+            if not cfg.defaults.keep_audio_files:
                 # Remove WAV
                 try:
                     if wav_path.exists():

@@ -22,7 +22,7 @@ import logging
 from pathlib import Path
 from typing import Any, cast
 
-import svx.core.config as config
+from svx.core.config import Config, ProviderConfig
 
 from .base import Provider, ProviderError, TranscriptionResult
 
@@ -91,10 +91,18 @@ class MistralProvider(Provider):
     """
     Mistral Voxtral provider implementation.
 
-    Uses the Mistral Python SDK to call `chat.complete` with audio input.
+    Uses the Mistral Python SDK to call `chat.with_audio` endpoint.
     """
 
     name = "mistral"
+
+    def __init__(self, cfg: Config | None = None):
+        if cfg is None:
+            cfg = Config.load()
+        mistral_cfg = cfg.providers.get("mistral", ProviderConfig())
+        self.api_key = mistral_cfg.api_key
+        if not self.api_key:
+            raise ProviderError("Missing providers.mistral.api_key in user config (config.toml).")
 
     def transcribe(
         self,
@@ -119,14 +127,6 @@ class MistralProvider(Provider):
         Raises:
             ProviderError: for expected configuration/import errors.
         """
-        # Read API key from user config (config.toml): [providers.mistral].api_key
-        user_cfg = config.load_user_config() or {}
-        providers = user_cfg.get("providers") or {}
-        mistral_cfg = providers.get("mistral") or {}
-        api_key = str(mistral_cfg.get("api_key") or "")
-        if not api_key:
-            raise ProviderError("Missing providers.mistral.api_key in user config (config.toml).")
-
         try:
             from mistralai import (
                 Mistral,  # Lazy import to avoid hard dependency at module import time
@@ -149,7 +149,7 @@ class MistralProvider(Provider):
         messages.append({"role": "user", "content": user_content})
 
         # Execute request
-        client = Mistral(api_key=api_key)
+        client = Mistral(api_key=self.api_key)
         model_name = model or "voxtral-small-latest"
         logging.info(
             "Calling Mistral model=%s with audio=%s (%s)",

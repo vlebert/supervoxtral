@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Final
 
@@ -242,6 +243,111 @@ def init_user_config(force: bool = False, prompt_file: Path | None = None) -> Pa
     return USER_CONFIG_FILE
 
 
+@dataclass
+class ProviderConfig:
+    api_key: str | None = None
+
+
+@dataclass
+class DefaultsConfig:
+    provider: str = "mistral"
+    format: str = "opus"
+    model: str = "voxtral-mini-latest"
+    language: str | None = None
+    rate: int = 16000
+    channels: int = 1
+    device: str | None = None
+    keep_audio_files: bool = False
+    copy: bool = True
+    log_level: str = "INFO"
+    outfile_prefix: str | None = None
+
+
+@dataclass
+class PromptConfig:
+    text: str | None = None
+    file: str | None = None
+
+
+@dataclass
+class Config:
+    providers: dict[str, ProviderConfig] = field(default_factory=dict)
+    defaults: DefaultsConfig = field(default_factory=DefaultsConfig)
+    prompt: PromptConfig = field(default_factory=PromptConfig)
+    recordings_dir: Path = RECORDINGS_DIR
+    transcripts_dir: Path = TRANSCRIPTS_DIR
+    logs_dir: Path = LOGS_DIR
+    user_prompt_dir: Path = USER_PROMPT_DIR
+    user_config_file: Path = USER_CONFIG_FILE
+
+    @classmethod
+    def load(cls, log_level: str = "INFO") -> Config:
+        setup_environment(log_level)
+        user_config = load_user_config()
+        user_defaults_raw = user_config.get("defaults", {})
+        # Coerce defaults
+        defaults_data = {
+            "provider": str(user_defaults_raw.get("provider", "mistral")),
+            "format": str(user_defaults_raw.get("format", "opus")),
+            "model": str(user_defaults_raw.get("model", "voxtral-mini-latest")),
+            "language": user_defaults_raw.get("language"),
+            "rate": int(user_defaults_raw.get("rate", 16000)),
+            "channels": int(user_defaults_raw.get("channels", 1)),
+            "device": user_defaults_raw.get("device"),
+            "keep_audio_files": bool(user_defaults_raw.get("keep_audio_files", False)),
+            "copy": bool(user_defaults_raw.get("copy", True)),
+            "log_level": str(user_defaults_raw.get("log_level", "INFO")),
+            "outfile_prefix": user_defaults_raw.get("outfile_prefix"),
+        }
+        channels = defaults_data["channels"]
+        if channels not in (1, 2):
+            raise ValueError("channels must be 1 or 2")
+        rate = defaults_data["rate"]
+        if rate <= 0:
+            raise ValueError("rate must be > 0")
+        format_ = defaults_data["format"]
+        if format_ not in {"wav", "mp3", "opus"}:
+            raise ValueError("format must be one of wav|mp3|opus")
+        defaults = DefaultsConfig(**defaults_data)
+        # Providers
+        providers_raw = user_config.get("providers", {})
+        providers_data = {}
+        for name, prov_raw in providers_raw.items():
+            if isinstance(prov_raw, dict):
+                api_key = str(prov_raw.get("api_key", ""))
+                providers_data[name] = ProviderConfig(api_key=api_key)
+        # Prompt
+        prompt_raw = user_config.get("prompt", {})
+        prompt_data = {
+            "text": prompt_raw.get("text") if isinstance(prompt_raw.get("text"), str) else None,
+            "file": prompt_raw.get("file") if isinstance(prompt_raw.get("file"), str) else None,
+        }
+        prompt = PromptConfig(**prompt_data)
+        # Apply log_level from defaults if present
+        if "log_level" in user_defaults_raw:
+            configured_level = str(user_defaults_raw["log_level"])
+            logging.getLogger().setLevel(logging.getLevelName(configured_level))
+        data = {
+            "defaults": defaults,
+            "providers": providers_data,
+            "prompt": prompt,
+            "recordings_dir": RECORDINGS_DIR,
+            "transcripts_dir": TRANSCRIPTS_DIR,
+            "logs_dir": LOGS_DIR,
+            "user_prompt_dir": USER_PROMPT_DIR,
+            "user_config_file": USER_CONFIG_FILE,
+        }
+        return cls(**data)
+
+    def resolve_prompt(self, inline: str | None = None, file_path: Path | None = None) -> str:
+        from svx.core.prompt import resolve_user_prompt
+
+        return resolve_user_prompt(self, inline, file_path, self.user_prompt_dir)
+
+    def get_provider_config(self, name: str) -> dict[str, Any]:
+        return asdict(self.providers.get(name, ProviderConfig()))
+
+
 __all__ = [
     "ROOT_DIR",
     "RECORDINGS_DIR",
@@ -253,4 +359,8 @@ __all__ = [
     "setup_environment",
     "load_user_config",
     "init_user_config",
+    "Config",
+    "ProviderConfig",
+    "DefaultsConfig",
+    "PromptConfig",
 ]
