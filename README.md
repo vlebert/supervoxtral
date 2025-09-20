@@ -75,6 +75,17 @@ This installs the `svx` command within the virtual environment. Make sure to act
    - Windows: `python -m venv .venv && .\.venv\Scripts\Activate.ps1`
 3. Install in editable mode: `pip install -e .` (or `pip install -e ".[dev]"` for dev tools).
 
+## macOS Shortcuts Integration
+
+To enable fast, hotkey-driven access on macOS, integrate SuperVoxtral with the Shortcuts app. Create a new Shortcut that runs `svx record --gui` via a "Run Shell Script" action (ensure `svx` is in your PATH). Assign a global hotkey in Shortcuts settings for instant GUI launch—ideal for quick voice-to-text workflows, with results copied directly to the clipboard.
+
+### Quick Setup Steps
+1. Open the Shortcuts app and create a new shortcut.
+2. Add the "Run Shell Script" action with input: `svx record --gui`.
+3. In shortcut details, set a keyboard shortcut (e.g., Cmd+Shift+V).
+
+![macOS Shortcut Setup](macos-shortcut.png)
+
 ---
 
 ## Configuration (API keys and prompts)
