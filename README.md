@@ -167,12 +167,6 @@ The CLI provides config utilities and a unified `record` entrypoint for both CLI
 
 Most defaults (provider, format, model, language, rate, channels, device, keep flags, copy) come from config.toml. CLI overrides are limited to specific options.
 
-### Config Subcommands
-
-- `svx config init [--force]`: Initialize user config.toml (with defaults) and prompt/user.md file. Use `--force` to overwrite existing files.
-- `svx config open`: Open the user configuration directory in your file manager.
-- `svx config show`: Display the effective configuration, paths, and resolved prompt.
-
 ### Record Command
 
 ```
