@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "supervoxtral"
 version = "0.1.0"
-description = "CLI/TUI audio recorder and transcription client using Mistral Voxtral (chat with audio) and optional Whisper APIs."
+description = "CLI/GUI audio recorder and transcription client using Mistral Voxtral (chat with audio) and optional Whisper APIs."
 requires-python = ">=3.11"
 license = { text = "MIT" }
 keywords = [
@@ -15,7 +15,7 @@ keywords = [
   "voxtral",
   "whisper",
   "cli",
-  "tui",
+  "gui",
 ]
 dependencies = [
   "typer",
@@ -29,7 +29,6 @@ dependencies = [
 
 [project.optional-dependencies]
 openai = ["openai"]
-tui = ["textual"]
 gui = ["PySide6-Essentials"]
 dev = ["black", "ruff", "mypy", "types-python-dotenv", "pytest"]
 

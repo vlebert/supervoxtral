@@ -1,6 +1,6 @@
 # supervoxtral
 
-A simple Python CLI/TUI tool to record audio from your microphone, optionally convert it (WAV/MP3/Opus), and send it to transcription/chat APIs such as Mistral Voxtral (chat with audio) or OpenAI Whisper.
+A simple Python CLI/GUI tool to record audio from your microphone, optionally convert it (WAV/MP3/Opus), and send it to transcription/chat APIs such as Mistral Voxtral (chat with audio) or OpenAI Whisper.
 
 MVP scope:
 - Manual stop only (no auto-stop on silence, for now).
@@ -49,10 +49,6 @@ Optional extras:
   ```
   pip install -e ".[openai]"
   ```
-- TUI (planned Phase 2):
-  ```
-  pip install -e ".[tui]"
-  ```
 - Dev tools:
   ```
   pip install -e ".[dev]"
@@ -97,7 +93,7 @@ No `.env` or shell environment variables are used for API keys.
 - `svx/` — package source
   - `core/` — audio capture, encoding, config, storage, unified recording/transcription pipeline
   - `providers/` — API providers (Mistral Voxtral, OpenAI Whisper)
-  - `ui/` — GUI/TUI (Qt-based GUI for MVP; TUI planned)
+  - `ui/` — GUI (Qt-based GUI)
 - recordings/ — captured and converted audio files (created only if keep_audio_files = true or --save-all)
 - transcripts/ — API responses (text/JSON) (created only if keep_transcript_files = true or --save-all)
 - logs/ — application logs (created only if keep_log_files = true or --save-all)
@@ -312,24 +308,3 @@ The tool will send the converted file if you set `--format mp3` or `--format opu
 ## License
 
 MIT
-
-## Progress checklist
-```markdown
-- [x] Initialize project (Typer CLI, config.toml)
-- [x] Implement WAV recording (start/stop by command)
-- [x] Add optional conversion via ffmpeg (MP3/Opus)
-- [x] Integrate Mistral Voxtral provider (chat with audio + prompt)
-- [ ] Integrate OpenAI Whisper provider (optional)
-- [x] Store results in transcripts/ + logs (conditional)
-- [x] Add project structure in AGENTS.md
-- [x] Implement Qt-based GUI with stop controls
-- [x] Prepare prompts/ for user prompts (resolution via Config)
-- [x] Refactor to centralized Config object (dataclasses, propagation)
-- [x] Unify CLI/GUI recording pipeline (RecordingPipeline)
-- [x] Implement zero-footprint temp file handling (keep_* flags, --save-all)
-- [ ] Add Textual TUI with STOP button (phase 2)
-- [ ] Prepare prompts/ for post-processing (later phase)
-- [x] Write installation/usage docs (incl. ffmpeg)
-- [x] Create short AGENTS.md for agents
-- [x] Add user prompt management (inline/file/config)
-```
