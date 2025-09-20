@@ -18,6 +18,7 @@ UI changes in this file:
 from __future__ import annotations
 
 import logging
+import tempfile
 import threading
 from pathlib import Path
 
@@ -231,28 +232,85 @@ class RecorderWorker(QObject):
         - optionally delete audio files
         """
         base = self.cfg.defaults.outfile_prefix or f"rec_{timestamp()}"
-        wav_path = self.cfg.recordings_dir / f"{base}.wav"
-        to_send_path = wav_path
+        final_user_prompt = self._resolve_user_prompt()
+        keep_audio = self.cfg.defaults.keep_audio_files
+        keep_transcript = self.cfg.defaults.keep_transcript_files
 
         try:
-            # 1) Record
-            self.status.emit("Recording...")
-            duration = record_wav(
-                wav_path,
-                samplerate=self.cfg.defaults.rate,
-                channels=self.cfg.defaults.channels,
-                device=self.cfg.defaults.device,
-                stop_event=self._stop_event,
-            )
+            if keep_audio:
+                self.cfg.recordings_dir.mkdir(parents=True, exist_ok=True)
+                wav_path = self.cfg.recordings_dir / f"{base}.wav"
+                to_send_path = wav_path
 
-            # 2) Convert if requested
-            if self.cfg.defaults.format in {"mp3", "opus"}:
-                self.status.emit("Converting...")
-                to_send_path = convert_audio(wav_path, self.cfg.defaults.format)
+                # 1) Record
+                self.status.emit("Recording...")
+                duration = record_wav(
+                    wav_path,
+                    samplerate=self.cfg.defaults.rate,
+                    channels=self.cfg.defaults.channels,
+                    device=self.cfg.defaults.device,
+                    stop_event=self._stop_event,
+                )
 
+                # 2) Convert if requested
+                if self.cfg.defaults.format in {"mp3", "opus"}:
+                    self.status.emit("Converting...")
+                    to_send_path = convert_audio(wav_path, self.cfg.defaults.format)
+            else:
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    tmp_path = Path(tmpdir)
+                    wav_path = tmp_path / f"{base}.wav"
+                    to_send_path = wav_path
+
+                    # 1) Record
+                    self.status.emit("Recording...")
+                    duration = record_wav(
+                        wav_path,
+                        samplerate=self.cfg.defaults.rate,
+                        channels=self.cfg.defaults.channels,
+                        device=self.cfg.defaults.device,
+                        stop_event=self._stop_event,
+                    )
+
+                    # 2) Convert if requested
+                    if self.cfg.defaults.format in {"mp3", "opus"}:
+                        self.status.emit("Converting...")
+                        to_send_path = convert_audio(wav_path, self.cfg.defaults.format)
+
+                    # 3) Transcribe
+                    self.status.emit("Transcribing...")
+                    prov = get_provider(self.cfg.defaults.provider, cfg=self.cfg)
+                    result = prov.transcribe(
+                        to_send_path,
+                        user_prompt=final_user_prompt,
+                        model=self.cfg.defaults.model,
+                        language=self.cfg.defaults.language,
+                    )
+                    text = result["text"]
+                    raw = result["raw"]
+
+                    # 4) Save outputs if enabled
+                    if keep_transcript:
+                        self.cfg.transcripts_dir.mkdir(parents=True, exist_ok=True)
+                        save_transcript(
+                            self.cfg.transcripts_dir, base, self.cfg.defaults.provider, text, raw
+                        )
+
+                    # 5) Copy to clipboard
+                    if self.cfg.defaults.copy:
+                        try:
+                            copy_to_clipboard(text)
+                        except Exception as e:
+                            logging.warning("Failed to copy transcript to clipboard: %s", e)
+
+                    # 7) Done
+                    logging.info("Recording/transcription finished (%.2fs)", duration)
+                    self.done.emit(text)
+                    return
+
+            # For keep_audio=True: continue to transcribe and save outside the with
             # 3) Transcribe
             self.status.emit("Transcribing...")
-            final_user_prompt = self._resolve_user_prompt()
             prov = get_provider(self.cfg.defaults.provider, cfg=self.cfg)
             result = prov.transcribe(
                 to_send_path,
@@ -263,8 +321,14 @@ class RecorderWorker(QObject):
             text = result["text"]
             raw = result["raw"]
 
-            # 4) Save outputs
-            save_transcript(self.cfg.transcripts_dir, base, self.cfg.defaults.provider, text, raw)
+            # 4) Save outputs if enabled
+            if keep_transcript:
+                self.cfg.transcripts_dir.mkdir(parents=True, exist_ok=True)
+                save_transcript(
+                    self.cfg.transcripts_dir, base, self.cfg.defaults.provider, text, raw
+                )
+            else:
+                pass
 
             # 5) Copy to clipboard
             if self.cfg.defaults.copy:
@@ -272,16 +336,6 @@ class RecorderWorker(QObject):
                     copy_to_clipboard(text)
                 except Exception as e:
                     logging.warning("Failed to copy transcript to clipboard: %s", e)
-
-            # 6) Cleanup audio files if requested
-            if not self.cfg.defaults.keep_audio_files:
-                try:
-                    if wav_path.exists():
-                        wav_path.unlink(missing_ok=True)
-                    if to_send_path != wav_path and Path(to_send_path).exists():
-                        Path(to_send_path).unlink(missing_ok=True)
-                except Exception:
-                    logging.debug("Audio cleanup encountered a non-fatal error.", exc_info=True)
 
             # 7) Done
             logging.info("Recording/transcription finished (%.2fs)", duration)
@@ -314,7 +368,6 @@ class RecorderWindow(QWidget):
         self.user_prompt_file = user_prompt_file
 
         # Environment and prompt files
-        config.setup_environment(log_level=cfg.defaults.log_level)
 
         # Window basics
         self.setObjectName("recorder_window")
@@ -340,10 +393,23 @@ class RecorderWindow(QWidget):
 
         # Minimal geek status line under waveform (colored + bullets)
         sep = "<span style='color:#8b949e'> • </span>"
-        prov_model_html = f"<span style='color:#7ee787'>{self.cfg.defaults.provider}/{self.cfg.defaults.model}</span>"
+        prov_model_html = (
+            f"<span style='color:#7ee787'>"
+            f"{self.cfg.defaults.provider}/{self.cfg.defaults.model}"
+            "</span>"
+        )
         format_html = f"<span style='color:#ffa657'>{self.cfg.defaults.format}</span>"
-        rate_html = f"<span style='color:#a5d6ff'>{self.cfg.defaults.rate // 1000}k/{self.cfg.defaults.channels}ch</span>"
-        parts = [prov_model_html, format_html, rate_html]
+        rate_html = (
+            f"<span style='color:#a5d6ff'>"
+            f"{self.cfg.defaults.rate // 1000}k/"
+            f"{self.cfg.defaults.channels}ch"
+            "</span>"
+        )
+        parts = [
+            prov_model_html,
+            format_html,
+            rate_html,
+        ]
         if self.cfg.defaults.language:
             lang_html = f"<span style='color:#c9b4ff'>{self.cfg.defaults.language}</span>"
             parts.append(lang_html)

@@ -122,17 +122,21 @@ def setup_environment(log_level: str = "INFO") -> None:
     - Configures logging according to `log_level`.
     """
 
-    # Ensure output directories exist
-    RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
-    TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
-    LOGS_DIR.mkdir(parents=True, exist_ok=True)
-
     # Ensure user config/prompt dirs exist (created but files not overwritten)
     USER_PROMPT_DIR.mkdir(parents=True, exist_ok=True)
     USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Configure logging last (requires LOGS_DIR)
-    _configure_logging(log_level)
+    # Initial stream logging (file logging added conditionally later)
+    log_level_int = _get_log_level(log_level)
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level_int)
+    while root_logger.handlers:
+        root_logger.handlers.pop()
+    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setLevel(log_level_int)
+    stream_handler.setFormatter(formatter)
+    root_logger.addHandler(stream_handler)
 
 
 def _read_toml(path: Path) -> dict[str, Any]:
@@ -196,9 +200,15 @@ def init_user_config(force: bool = False, prompt_file: Path | None = None) -> Pa
         "# - This configuration controls the default behavior of `svx record`.\n"
         "# - The parameters below override the binary's built-in defaults.\n"
         "# - You can override a few options at runtime via the CLI:\n"
-        "#     --prompt / --prompt-file (set a one-off prompt for this run)\n"
-        "#     --log-level (debugging)\n"
-        "#     --outfile-prefix (one-off output naming)\n"
+        "#   --prompt / --prompt-file (set a one-off prompt for this run)\n"
+        "#   --log-level (debugging)\n"
+        "#   --outfile-prefix (one-off output naming)\n"
+        "#\n"
+        "# Output persistence:\n"
+        "# - Set keep_* = true to create and save files to project\n"
+        "#   directories (recordings/, transcripts/, logs/).\n"
+        "# - false (default): use temp files/console only (no disk\n"
+        "#   footprint in project dir).\n"
         "#\n"
         "# Authentication:\n"
         "# - API keys are defined in provider-specific sections in this file.\n"
@@ -218,10 +228,16 @@ def init_user_config(force: bool = False, prompt_file: Path | None = None) -> Pa
         "rate = 16000\n"
         "channels = 1\n"
         'device = ""\n\n'
-        "# Temporary audio files handling:\n"
-        "# - false: delete WAV/converted files after transcription\n"
-        "# - true: keep files on disk\n"
-        "keep_audio_files = false\n\n"
+        "# Output persistence:\n"
+        "# - keep_audio_files: false uses temp files (no recordings/ dir),\n"
+        "#   true saves to recordings/\n"
+        "keep_audio_files = false\n"
+        "# - keep_transcript_files: false prints/copies only (no\n"
+        "#   transcripts/ dir), true saves to transcripts/\n"
+        "keep_transcript_files = false\n"
+        "# - keep_log_files: false console only (no logs/ dir), true\n"
+        "#   saves to logs/app.log\n"
+        "keep_log_files = false\n\n"
         "# Automatically copy the transcribed text to the system clipboard\n"
         "copy = true\n\n"
         '# Log level: "DEBUG" | "INFO" | "WARNING" | "ERROR"\n'
@@ -258,6 +274,8 @@ class DefaultsConfig:
     channels: int = 1
     device: str | None = None
     keep_audio_files: bool = False
+    keep_transcript_files: bool = False
+    keep_log_files: bool = False
     copy: bool = True
     log_level: str = "INFO"
     outfile_prefix: str | None = None
@@ -295,8 +313,10 @@ class Config:
             "channels": int(user_defaults_raw.get("channels", 1)),
             "device": user_defaults_raw.get("device"),
             "keep_audio_files": bool(user_defaults_raw.get("keep_audio_files", False)),
+            "keep_transcript_files": bool(user_defaults_raw.get("keep_transcript_files", False)),
+            "keep_log_files": bool(user_defaults_raw.get("keep_log_files", False)),
             "copy": bool(user_defaults_raw.get("copy", True)),
-            "log_level": str(user_defaults_raw.get("log_level", "INFO")),
+            "log_level": str(user_defaults_raw.get("log_level", log_level)),
             "outfile_prefix": user_defaults_raw.get("outfile_prefix"),
         }
         channels = defaults_data["channels"]
@@ -309,6 +329,24 @@ class Config:
         if format_ not in {"wav", "mp3", "opus"}:
             raise ValueError("format must be one of wav|mp3|opus")
         defaults = DefaultsConfig(**defaults_data)
+        # Conditional output directories
+        if defaults.keep_audio_files:
+            RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+        if defaults.keep_transcript_files:
+            TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
+        if defaults.keep_log_files:
+            LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        # Update logging level to effective (user or CLI fallback)
+        root_logger = logging.getLogger()
+        root_logger.setLevel(_get_log_level(defaults.log_level))
+        # Add file handler if enabled
+        if defaults.keep_log_files:
+            formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+            file_handler = logging.FileHandler(LOGS_DIR / "app.log", encoding="utf-8")
+            file_level = _get_log_level(defaults.log_level)
+            file_handler.setLevel(file_level)
+            file_handler.setFormatter(formatter)
+            root_logger.addHandler(file_handler)
         # Providers
         providers_raw = user_config.get("providers", {})
         providers_data = {}
@@ -323,10 +361,6 @@ class Config:
             "file": prompt_raw.get("file") if isinstance(prompt_raw.get("file"), str) else None,
         }
         prompt = PromptConfig(**prompt_data)
-        # Apply log_level from defaults if present
-        if "log_level" in user_defaults_raw:
-            configured_level = str(user_defaults_raw["log_level"])
-            logging.getLogger().setLevel(logging.getLevelName(configured_level))
         data = {
             "defaults": defaults,
             "providers": providers_data,
