@@ -59,6 +59,7 @@ class Provider(Protocol):
         user_prompt: str | None,
         model: str | None = None,
         language: str | None = None,
+        transcribe_mode: bool = False,
     ) -> TranscriptionResult:
         """
         Transcribe or process `audio_path` and return a normalized result.
@@ -66,12 +67,14 @@ class Provider(Protocol):
         Args:
             audio_path: Path to an audio file (wav/mp3/opus...) to send to the provider.
             user_prompt: Optional user prompt to guide the transcription or analysis.
-
             model: Optional provider-specific model identifier.
             language: Optional language hint/constraint (e.g., "en", "fr").
+            transcribe_mode: Optional bool to enable specialized modes like pure
+                             transcription (default False).
 
         Returns:
-            TranscriptionResult including a human-readable `text` and provider `raw` payload.
+            TranscriptionResult including a human-readable `text` and
+            provider `raw` payload.
 
         Raises:
             ProviderError: For known/handled provider errors (e.g., missing API key).

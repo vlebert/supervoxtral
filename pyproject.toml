@@ -5,8 +5,8 @@ build-backend = "hatchling.build"
 [project]
 name = "supervoxtral"
 version = "0.1.0"
-description = "CLI/TUI audio recorder and transcription client using Mistral Voxtral (chat with audio) and optional Whisper APIs."
-requires-python = ">=3.10"
+description = "CLI/GUI audio recorder and transcription client using Mistral Voxtral (chat with audio and transcription)."
+requires-python = ">=3.11"
 license = { text = "MIT" }
 keywords = [
   "transcription",
@@ -15,7 +15,7 @@ keywords = [
   "voxtral",
   "whisper",
   "cli",
-  "tui",
+  "gui",
 ]
 dependencies = [
   "typer",
@@ -28,8 +28,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-openai = ["openai"]
-tui = ["textual"]
+gui = ["PySide6-Essentials"]
 dev = ["black", "ruff", "mypy", "types-python-dotenv", "pytest"]
 
 [project.scripts]
@@ -49,3 +48,10 @@ ignore = []
 
 [tool.hatch.build.targets.wheel]
 packages = ["svx"]
+
+[tool.basedpyright]
+typeCheckingMode = "standard"  # "basic" | "standard" | "strict" (défaut: "standard")
+# reportUnknownArgumentType = false
+# reportUnknownVariableType = false
+# reportUnusedCallResult = false
+# reportUnannotatedClassAttribute = false

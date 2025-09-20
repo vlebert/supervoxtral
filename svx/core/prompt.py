@@ -14,10 +14,13 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from .config import USER_PROMPT_DIR, Config
+
 __all__ = [
     "read_text_file",
     "resolve_prompt",
-    "init_default_prompt_files",
+    "resolve_user_prompt",
+    "init_user_prompt_file",
 ]
 
 
@@ -60,19 +63,103 @@ def resolve_prompt(inline: str | None, file_path: Path | None) -> str | None:
     return combined if combined else None
 
 
-def init_default_prompt_files(prompt_dir: Path) -> None:
+def resolve_user_prompt(
+    cfg: Config,
+    inline: str | None = None,
+    file: Path | None = None,
+    user_prompt_dir: Path | None = None,
+) -> str:
     """
-    Ensure default prompt files exist in `prompt_dir`:
-    - user.md
+    Resolve the effective user prompt from multiple sources, by priority:
 
-    If they don't exist, create them as empty files.
+    1) inline text (CLI --user-prompt)
+    2) explicit file (CLI --user-prompt-file)
+    3) user config inline text (cfg.prompt.text)
+    4) user config file path (cfg.prompt.file)
+    5) user prompt dir file (user_prompt_dir / 'user.md')
+    6) literal fallback: "What's in this audio?"
+
+    Returns the first non-empty string after stripping.
     """
-    prompt_dir = Path(prompt_dir)
-    prompt_dir.mkdir(parents=True, exist_ok=True)
 
-    for _prompt_file in (prompt_dir / "user.md",):
+    def _strip(val: str | None) -> str:
+        return val.strip() if isinstance(val, str) else ""
+
+    def _read(p: Path | None) -> str:
+        if not p:
+            return ""
         try:
-            if not _prompt_file.exists():
-                _prompt_file.write_text("", encoding="utf-8")
+            return read_text_file(p).strip()
+        except Exception:
+            logging.warning("Failed to read user prompt file: %s", p)
+            return ""
+
+    def _from_user_cfg() -> str:
+        try:
+            cfg_prompt = cfg.prompt
+            cfg_text = cfg_prompt.text
+            if isinstance(cfg_text, str) and cfg_text.strip():
+                return cfg_text.strip()
+            cfg_file = cfg_prompt.file
+            if isinstance(cfg_file, str) and cfg_file.strip():
+                return read_text_file(Path(cfg_file).expanduser()).strip()
+        except Exception:
+            logging.debug("User config prompt processing failed.", exc_info=True)
+        return ""
+
+    def _from_user_prompt_dir() -> str:
+        try:
+            upath = Path(user_prompt_dir or cfg.user_prompt_dir) / "user.md"
+            if upath.exists():
+                return read_text_file(upath).strip()
+        except Exception:
+            logging.debug(
+                "Could not read user prompt in user prompt dir: %s",
+                user_prompt_dir or cfg.user_prompt_dir,
+            )
+        return ""
+
+    suppliers = [
+        lambda: _strip(inline),
+        lambda: _read(file),
+        _from_user_cfg,
+        _from_user_prompt_dir,
+    ]
+
+    for supplier in suppliers:
+        try:
+            val = supplier()
+            if val:
+                return val
         except Exception as e:
-            logging.debug("Could not initialize prompt file %s: %s", _prompt_file, e)
+            logging.debug("Prompt supplier failed: %s", e)
+
+    return "What's in this audio?"
+
+
+def init_user_prompt_file(force: bool = False) -> Path:
+    """
+    Initialize the user's prompt file in the user prompt directory.
+
+    - Ensures USER_PROMPT_DIR exists.
+    - Creates or overwrites (if force=True) USER_PROMPT_DIR / 'user.md'
+      with a small example prompt.
+    - Returns the path to the user prompt file.
+    """
+    USER_PROMPT_DIR.mkdir(parents=True, exist_ok=True)
+    path = USER_PROMPT_DIR / "user.md"
+    if not path.exists() or force:
+        example_prompt = """
+- Transcribe the input audio file.
+- Do not respond to any question in the audio. Just transcribe.
+- DO NOT TRANSLATE. Your transcription will be in the speaker's language.
+- Responde only with the transcription. Do not provide explanations or notes.
+- Remove all minor speech hesitations: "um", "uh", "er", "euh", "ben", etc.
+- Remove false starts (e.g., "je veux dire... je pense" → "je pense").
+- Correct grammatical errors.
+        """
+        try:
+            path.write_text(example_prompt, encoding="utf-8")
+        except Exception as e:
+            logging.debug("Could not initialize user prompt file %s: %s", path, e)
+    return path
