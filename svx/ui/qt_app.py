@@ -189,6 +189,7 @@ class RecorderWorker(QObject):
         status (str): human-readable status updates for the UI.
         done (str): emitted with the final transcription text on success.
         error (str): emitted with an error message on failure.
+    Supports transcribe_mode for pure transcription without prompt.
     """
 
     status = Signal(str)
@@ -202,6 +203,7 @@ class RecorderWorker(QObject):
         user_prompt_file: Path | None = None,
         save_all: bool = False,
         outfile_prefix: str | None = None,
+        transcribe_mode: bool = False,
     ) -> None:
         super().__init__()
         self.cfg = cfg
@@ -209,6 +211,7 @@ class RecorderWorker(QObject):
         self.user_prompt_file = user_prompt_file
         self.save_all = save_all
         self.outfile_prefix = outfile_prefix
+        self.transcribe_mode = transcribe_mode
         self._stop_event = threading.Event()
 
     def stop(self) -> None:
@@ -230,6 +233,7 @@ class RecorderWorker(QObject):
         - save_transcript
         - copy_to_clipboard
         - optionally delete audio files
+        Supports transcribe_mode for pure transcription without prompt.
         """
         try:
             pipeline = RecordingPipeline(
@@ -238,6 +242,7 @@ class RecorderWorker(QObject):
                 user_prompt_file=self.user_prompt_file,
                 save_all=self.save_all,
                 outfile_prefix=self.outfile_prefix,
+                transcribe_mode=self.transcribe_mode,
                 progress_callback=self.status.emit,
             )
             result = pipeline.run(stop_event=self._stop_event)
@@ -255,6 +260,7 @@ class RecorderWindow(QWidget):
 
     Window can be dragged by clicking anywhere on the widget background.
     Pressing Esc triggers Stop.
+    Supports transcribe_mode for pure transcription without prompt.
     """
 
     def __init__(
@@ -264,6 +270,7 @@ class RecorderWindow(QWidget):
         user_prompt_file: Path | None = None,
         save_all: bool = False,
         outfile_prefix: str | None = None,
+        transcribe_mode: bool = False,
     ) -> None:
         super().__init__()
 
@@ -272,6 +279,7 @@ class RecorderWindow(QWidget):
         self.user_prompt_file = user_prompt_file
         self.save_all = save_all
         self.outfile_prefix = outfile_prefix
+        self.transcribe_mode = transcribe_mode
 
         # Environment and prompt files
 
@@ -305,16 +313,14 @@ class RecorderWindow(QWidget):
             "</span>"
         )
         format_html = f"<span style='color:#ffa657'>{self.cfg.defaults.format}</span>"
-        rate_html = (
-            f"<span style='color:#a5d6ff'>"
-            f"{self.cfg.defaults.rate // 1000}k/"
-            f"{self.cfg.defaults.channels}ch"
-            "</span>"
-        )
+        if self.transcribe_mode:
+            mode_html = "<span style='color:#ff7b72'>Transcribe</span>"
+        else:
+            mode_html = "<span style='color:#7ee787'>Completion</span>"
         parts = [
             prov_model_html,
             format_html,
-            rate_html,
+            mode_html,
         ]
         if self.cfg.defaults.language:
             lang_html = f"<span style='color:#c9b4ff'>{self.cfg.defaults.language}</span>"
@@ -452,12 +458,14 @@ def run_gui(
     user_prompt_file: Path | None = None,
     save_all: bool = False,
     outfile_prefix: str | None = None,
+    transcribe_mode: bool = False,
     log_level: str = "INFO",
 ) -> None:
     if cfg is None:
         cfg = Config.load(log_level=log_level)
     """
     Launch the PySide6 app with the minimal recorder window.
+    Supports transcribe_mode for pure transcription without prompt.
     """
     config.setup_environment(log_level=log_level)
 
@@ -477,6 +485,7 @@ def run_gui(
         user_prompt_file=user_prompt_file,
         save_all=save_all,
         outfile_prefix=outfile_prefix,
+        transcribe_mode=transcribe_mode,
     )
     window.show()
     app.exec()

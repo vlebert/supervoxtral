@@ -118,7 +118,7 @@ svx record [OPTIONS]
 
 **Zero-footprint defaults**: No directories created; outputs to console/clipboard. Use `--save-all` or config `keep_* = true` for persistence.
 
-Note: the CLI now exposes a single recording entrypoint. Use `svx record --gui` to launch the GUI frontend. Most defaults (provider, format, model, language, rate, channels, device, keep_audio_files, copy) are configured via your user config (config.toml). The CLI only supports one-off overrides for: --prompt/--prompt-file, --log-level, --outfile-prefix, --gui, --save-all.
+Note: the CLI now exposes a single recording entrypoint. Use `svx record --gui` to launch the GUI frontend. Most defaults (provider, format, model, language, rate, channels, device, keep_audio_files, copy) are configured via your user config (config.toml). The CLI only supports one-off overrides for: --prompt/--prompt-file, --log-level, --outfile-prefix, --gui, --save-all, --transcribe.
 
 Planned MVP commands:
 
@@ -133,6 +133,15 @@ Planned MVP commands:
   svx record --save-all --prompt "What's in this file?"
   ```
   Creates `recordings/`, `transcripts/`, `logs/` and saves files/logs.
+
+- Pure transcription mode with Mistral Voxtral (no prompt, dedicated endpoint):
+  ```
+  svx record --transcribe
+  ```
+  Note: Prompts are ignored in this mode. Combine with --save-all for persistence:
+  ```
+  svx record --transcribe --save-all
+  ```
 
   To start the GUI frontend:
   ```
@@ -198,6 +207,7 @@ One-off CLI overrides:
 - `--log-level debug` (verbose logs)
 - `--user-prompt` (alias: `--prompt`; user prompt text, inline)
 - `--user-prompt-file` (alias: `--prompt-file`; path to user prompt markdown file in your user config dir)
+- `--transcribe` (pure transcription mode, ignores prompts)
 
 Alternative invocation (without console script):
 ```

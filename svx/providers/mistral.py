@@ -109,17 +109,18 @@ class MistralProvider(Provider):
         audio_path: Path,
         user_prompt: str | None,
         model: str | None = "voxtral-small-latest",
-        language: str | None = None,  # Currently unused by Mistral Voxtral
+        language: str | None = None,
+        transcribe_mode: bool = False,
     ) -> TranscriptionResult:
         """
-        Transcribe/process audio using Mistral's chat-with-audio endpoint.
+        Transcribe/process audio using Mistral's chat-with-audio or transcription endpoint.
 
         Args:
             audio_path: Path to wav/mp3/opus file to send.
-            user_prompt: Optional user prompt to include with the audio.
-
-            model: Voxtral model identifier (default: "voxtral-small-latest").
-            language: Currently unused; kept for Provider interface compatibility.
+            user_prompt: Optional user prompt to include with the audio (ignored in transcribe_mode).
+            model: Voxtral model identifier (default: "voxtral-small-latest" for chat, "voxtral-mini-latest" for transcribe).
+            language: Optional language hint for transcription (used only in transcribe_mode).
+            transcribe_mode: If True, use dedicated transcription endpoint without prompt.
 
         Returns:
             TranscriptionResult: {"text": text, "raw": raw_dict}
@@ -128,39 +129,58 @@ class MistralProvider(Provider):
             ProviderError: for expected configuration/import errors.
         """
         try:
-            from mistralai import (
-                Mistral,  # Lazy import to avoid hard dependency at module import time
-            )
+            from mistralai import Mistral
         except Exception as e:
             raise ProviderError(
                 "Failed to import 'mistralai'. Ensure the 'mistralai' package is installed."
             ) from e
 
-        # Prepare audio
         if not Path(audio_path).exists():
             raise ProviderError(f"Audio file not found: {audio_path}")
-        audio_b64 = _read_file_as_base64(Path(audio_path))
 
-        # Compose messages (user only)
-        messages: list[dict[str, Any]] = []
-        user_content: list[dict[str, Any]] = [{"type": "input_audio", "input_audio": audio_b64}]
-        if user_prompt:
-            user_content.append({"type": "text", "text": user_prompt})
-        messages.append({"role": "user", "content": user_content})
-
-        # Execute request
         client = Mistral(api_key=self.api_key)
-        model_name = model or "voxtral-small-latest"
-        logging.info(
-            "Calling Mistral model=%s with audio=%s (%s)",
-            model_name,
-            Path(audio_path).name,
-            Path(audio_path).suffix,
-        )
-        resp = client.chat.complete(model=model_name, messages=cast(Any, messages))
 
-        # Extract normalized text and raw payload
-        text = _extract_text_from_response(resp)
-        raw = _normalize_raw_response(resp)
+        if transcribe_mode:
+            if user_prompt:
+                logging.warning("Transcribe mode: user_prompt is ignored.")
+            model_name = model or "voxtral-mini-latest"
+            logging.info(
+                "Calling Mistral transcription endpoint model=%s with audio=%s (%s), language=%s",
+                model_name,
+                Path(audio_path).name,
+                Path(audio_path).suffix,
+                language or "auto",
+            )
+            with open(audio_path, "rb") as f:
+                resp = client.audio.transcriptions.complete(
+                    model=model_name,
+                    file={"content": f, "file_name": Path(audio_path).name},
+                    language=language,
+                )
+            text = resp.text
+            raw = _normalize_raw_response(resp)
+        else:
+            audio_b64 = _read_file_as_base64(Path(audio_path))
+
+            # Compose messages (user only)
+            messages: list[dict[str, Any]] = []
+            user_content: list[dict[str, Any]] = [{"type": "input_audio", "input_audio": audio_b64}]
+            if user_prompt:
+                user_content.append({"type": "text", "text": user_prompt})
+            messages.append({"role": "user", "content": user_content})
+
+            # Execute request
+            model_name = model or "voxtral-small-latest"
+            logging.info(
+                "Calling Mistral chat-with-audio model=%s with audio=%s (%s)",
+                model_name,
+                Path(audio_path).name,
+                Path(audio_path).suffix,
+            )
+            resp = client.chat.complete(model=model_name, messages=cast(Any, messages))
+
+            # Extract normalized text and raw payload
+            text = _extract_text_from_response(resp)
+            raw = _normalize_raw_response(resp)
 
         return TranscriptionResult(text=text, raw=raw)

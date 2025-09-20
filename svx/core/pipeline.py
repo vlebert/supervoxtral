@@ -23,6 +23,7 @@ class RecordingPipeline:
 
     Supports runtime overrides like save_all for keeping all files and adding log handlers.
     Optional progress_callback for status updates (e.g., for GUI).
+    Supports transcribe_mode for pure transcription without prompt using dedicated endpoint.
     """
 
     def __init__(
@@ -33,6 +34,7 @@ class RecordingPipeline:
         save_all: bool = False,
         outfile_prefix: str | None = None,
         progress_callback: Callable[[str], None] | None = None,
+        transcribe_mode: bool = False,
     ) -> None:
         self.cfg = cfg
         self.user_prompt = user_prompt
@@ -40,6 +42,7 @@ class RecordingPipeline:
         self.save_all = save_all
         self.outfile_prefix = outfile_prefix
         self.progress_callback = progress_callback
+        self.transcribe_mode = transcribe_mode
 
     def _status(self, msg: str) -> None:
         """Emit status update via callback if provided."""
@@ -94,12 +97,25 @@ class RecordingPipeline:
         provider = self.cfg.defaults.provider
         audio_format = self.cfg.defaults.format
         model = self.cfg.defaults.model
+        original_model = model
+        if self.transcribe_mode:
+            model = "voxtral-mini-latest"
+            if original_model != "voxtral-mini-latest":
+                logging.warning(
+                    "Mode Transcribe : modèle override de '%s' vers 'voxtral-mini-latest' "
+                    "(optimisé pour la transcription).",
+                    original_model,
+                )
         language = self.cfg.defaults.language
         rate = self.cfg.defaults.rate
         channels = self.cfg.defaults.channels
         device = self.cfg.defaults.device
         base = self.outfile_prefix or f"rec_{timestamp()}"
-        final_user_prompt = self.cfg.resolve_prompt(self.user_prompt, self.user_prompt_file)
+        if self.transcribe_mode:
+            final_user_prompt = None
+            self._status("Mode Transcribe activated: no prompt used.")
+        else:
+            final_user_prompt = self.cfg.resolve_prompt(self.user_prompt, self.user_prompt_file)
         keep_audio = self.cfg.defaults.keep_audio_files
         keep_transcript = self.cfg.defaults.keep_transcript_files
         copy_to_clip = self.cfg.defaults.copy
@@ -156,6 +172,7 @@ class RecordingPipeline:
                         user_prompt=final_user_prompt,
                         model=model,
                         language=language,
+                        transcribe_mode=self.transcribe_mode,
                     )
                     text = result["text"]
                     raw = result["raw"]
@@ -204,6 +221,7 @@ class RecordingPipeline:
                 user_prompt=final_user_prompt,
                 model=model,
                 language=language,
+                transcribe_mode=self.transcribe_mode,
             )
             text = result["text"]
             raw = result["raw"]

@@ -135,6 +135,11 @@ def record(
         "--prompt-file",
         help="Path to a text file containing the user prompt for this run.",
     ),
+    transcribe: bool = typer.Option(
+        False,
+        "--transcribe",
+        help="Use pure transcription mode (no prompt, dedicated endpoint).",
+    ),
     outfile_prefix: str | None = typer.Option(
         None,
         "--outfile-prefix",
@@ -164,7 +169,7 @@ def record(
     must be configured in the user's `config.toml` under [defaults].
 
     Priority for option resolution:
-    1) CLI explicit (only for --prompt/--prompt-file, --log-level, --outfile-prefix, --gui)
+    1) CLI explicit (only for --prompt/--prompt-file, --log-level, --outfile-prefix, --gui, --transcribe)
     2) defaults in user config (config.toml)
     3) coded CLI defaults (used when user config is absent)
 
@@ -173,8 +178,16 @@ def record(
     - Optionally converts to MP3/Opus depending on config.
     - Sends the file per provider rules.
     - Prints and saves the result.
+
+    Note: In --transcribe mode, prompts (--user-prompt or --user-prompt-file) are ignored,
+    as it uses a dedicated transcription endpoint without prompting.
     """
     cfg = Config.load(log_level=log_level)
+
+    if transcribe and (user_prompt or user_prompt_file):
+        console.print("[yellow]Transcribe mode: prompt is ignored.[/yellow]")
+        user_prompt = None
+        user_prompt_file = None
 
     # If GUI requested, launch GUI with the resolved parameters and exit.
     if gui:
@@ -187,6 +200,7 @@ def record(
             user_prompt_file=user_prompt_file,
             save_all=save_all,
             outfile_prefix=outfile_prefix,
+            transcribe_mode=transcribe,
         )
         return
 
@@ -215,6 +229,7 @@ def record(
             user_prompt_file=user_prompt_file,
             save_all=save_all,
             outfile_prefix=outfile_prefix,
+            transcribe_mode=transcribe,
             progress_callback=progress_cb,
         )
         result = pipeline.run(stop_event=stop_event)
