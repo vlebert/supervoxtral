@@ -14,7 +14,6 @@ MVP scope:
 ## Requirements
 
 - Python 3.11+
-- macOS (primary target for now; Linux/Windows should be fine but not tested yet)
 - ffmpeg (for MP3/Opus conversions)
   - macOS: `brew install ffmpeg`
   - Ubuntu/Debian: `sudo apt-get install ffmpeg`
@@ -61,10 +60,13 @@ API keys and default behavior are configured only in your user configuration fil
   - Windows: %APPDATA%/SuperVoxtral/config.toml
 
 - Initialize your user config and user prompt file:
+
   ```
   svx config init
   ```
+
   This creates:
+
   - config.toml (with sensible defaults, including zero-footprint mode)
   - a user prompt file at: ~/Library/Application Support/SuperVoxtral/prompt/user.md (macOS)
     - Linux: ${XDG_CONFIG_HOME:-~/.config}/supervoxtral/prompt/user.md
@@ -81,18 +83,6 @@ API keys and default behavior are configured only in your user configuration fil
 
 No `.env` or shell environment variables are used for API keys.
 
----
-
-## Project layout
-
-- `svx/` — package source
-  - `core/` — audio capture, encoding, config, storage, unified recording/transcription pipeline
-  - `providers/` — API providers (Mistral Voxtral)
-  - `ui/` — GUI (Qt-based GUI)
-- recordings/ — captured and converted audio files (created only if keep_audio_files = true or --save-all)
-- transcripts/ — API responses (text/JSON) (created only if keep_transcript_files = true or --save-all)
-- logs/ — application logs (created only if keep_log_files = true or --save-all)
-- pyproject.toml — project metadata and dependencies
 
 ---
 
@@ -171,9 +161,10 @@ Note: the file and inline prompts are not concatenated; the first non-empty sour
 If no user prompt is provided (by any of the above), it defaults to "What's in this audio?".
 
 A single user message is sent containing the audio and (optionally) text.
+
   Flow:
   - Starts recording WAV immediately.
-  - Press Enter (or Ctrl+C) to stop recording.
+  - Press Enter to stop recording.
   - Converts WAV to MP3 (if `--format mp3`) or Opus (if `--format opus`).
   - Sends the audio to Mistral Voxtral as base64 input_audio plus your text prompt.
   - Prints and saves the response to `transcripts/` (if keep_transcript_files=true or --save-all).
@@ -233,7 +224,7 @@ Authentication:
     ```
   - WAV -> Opus:
     ```
-    ffmpeg -y -i input.wav -c:a libopus -b:a 64k output.opus
+    ffmpeg -y -i input.wav -c:a libopus -b:a 24k output.opus
     ```
 
 The tool will send the converted file if you set `--format mp3` or `--format opus`; otherwise it sends the raw WAV.
@@ -245,30 +236,6 @@ The tool will send the converted file if you set `--format mp3` or `--format opu
 - Microphone permission: on first run, macOS will ask for microphone access. Approve it in System Settings > Privacy & Security > Microphone if needed.
 - If you face issues with device selection, we will add a `--device` flag to choose a specific input device.
 
----
-
-## Troubleshooting
-
-- “ffmpeg not found”: install via your OS package manager (see Requirements).
-- “PermissionError: Microphone”: grant mic permission in OS settings.
-- “401/403 from provider”: check that `providers.mistral.api_key` is set and valid in your `config.toml`.
-- “API key missing”: Ensure `providers.mistral.api_key` in config.toml; Config.load() validates.
-- No directories created: Normal in zero-footprint mode (keep_*=false). Use `--save-all` or edit config.toml.
-- “Module not found”: ensure your venv is active and `pip install -e .` ran successfully.
-
----
-
-## Development
-
-- Code style:
-  ```
-  ruff check .
-  black .
-  ```
-- Tests:
-  ```
-  pytest -q
-  ```
 
 ---
 
