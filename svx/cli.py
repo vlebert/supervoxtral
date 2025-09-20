@@ -165,11 +165,13 @@ def record(
     Record audio from the microphone and send it to the selected provider.
 
     This CLI accepts only a small set of runtime flags. Most defaults (provider, format,
-    model, language, sample rate, channels, device, file retention, copy-to-clipboard)
+    model, language, sample rate, channels, device,
+    file retention, copy-to-clipboard)
     must be configured in the user's `config.toml` under [defaults].
 
     Priority for option resolution:
-    1) CLI explicit (only for --prompt/--prompt-file, --log-level, --outfile-prefix, --gui, --transcribe)
+    1) CLI explicit (only for --prompt/--prompt-file, --log-level,
+       --outfile-prefix, --gui, --transcribe)
     2) defaults in user config (config.toml)
     3) coded CLI defaults (used when user config is absent)
 

@@ -117,9 +117,12 @@ class MistralProvider(Provider):
 
         Args:
             audio_path: Path to wav/mp3/opus file to send.
-            user_prompt: Optional user prompt to include with the audio (ignored in transcribe_mode).
-            model: Voxtral model identifier (default: "voxtral-small-latest" for chat, "voxtral-mini-latest" for transcribe).
-            language: Optional language hint for transcription (used only in transcribe_mode).
+            user_prompt: Optional user prompt to include with the audio
+                         (ignored in transcribe_mode).
+            model: Voxtral model identifier (default: "voxtral-small-latest" for chat,
+                   "voxtral-mini-latest" for transcribe).
+            language: Optional language hint for transcription (used only in
+                      transcribe_mode).
             transcribe_mode: If True, use dedicated transcription endpoint without prompt.
 
         Returns:

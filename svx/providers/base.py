@@ -69,10 +69,12 @@ class Provider(Protocol):
             user_prompt: Optional user prompt to guide the transcription or analysis.
             model: Optional provider-specific model identifier.
             language: Optional language hint/constraint (e.g., "en", "fr").
-            transcribe_mode: Optional bool to enable specialized modes like pure transcription (default False).
+            transcribe_mode: Optional bool to enable specialized modes like pure
+                             transcription (default False).
 
         Returns:
-            TranscriptionResult including a human-readable `text` and provider `raw` payload.
+            TranscriptionResult including a human-readable `text` and
+            provider `raw` payload.
 
         Raises:
             ProviderError: For known/handled provider errors (e.g., missing API key).

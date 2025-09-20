@@ -86,7 +86,8 @@ class RecordingPipeline:
             stop_event: Optional event to signal recording stop (e.g., for GUI).
 
         Returns:
-            Dict with 'text' (str), 'raw' (dict), 'duration' (float), 'paths' (dict of Path or None).
+            Dict with 'text' (str), 'raw' (dict), 'duration' (float),
+            'paths' (dict of Path or None).
 
         Raises:
             Exception: On recording, conversion, or transcription errors.
