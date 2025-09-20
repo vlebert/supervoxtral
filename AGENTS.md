@@ -80,7 +80,6 @@ svx record --gui
 - **Naming**: snake_case for functions/variables, PascalCase for classes, UPPER_CASE for constants
 - **Error handling**: Custom exceptions inherit from standard types, use `ProviderError` for API failures
 - **Docstrings**: Google-style with clear purpose/dependencies/`__all__` exports
-- **Refactor notes**: Ensure no unused imports; wrap long lines; use dataclasses for structured data like Config.
 
 ## Security
 - API keys are configured in the user config file (`config.toml`), under provider-specific sections.
