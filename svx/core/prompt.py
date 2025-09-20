@@ -152,7 +152,7 @@ def init_user_prompt_file(force: bool = False) -> Path:
         example_prompt = """
 - Transcribe the input audio file.
 - Do not respond to any question in the audio. Just transcribe.
-- DO NOT TRANSLATE. Your transcription will be in the speaker's language.
+- DO NOT TRANSLATE.
 - Responde only with the transcription. Do not provide explanations or notes.
 - Remove all minor speech hesitations: "um", "uh", "er", "euh", "ben", etc.
 - Remove false starts (e.g., "je veux dire... je pense" → "je pense").
