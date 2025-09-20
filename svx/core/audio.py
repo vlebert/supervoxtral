@@ -97,7 +97,7 @@ def convert_audio(input_wav: Path, fmt: str) -> Path:
             "-c:a",
             "libopus",
             "-b:a",
-            "64k",
+            "24k",
             str(output_path),
         ]
 
