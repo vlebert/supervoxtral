@@ -1,7 +1,7 @@
 # SuperVoxtral — Agent Guide
 
 ## Project overview
-Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral, Whisper). MVP: manual stop, API-based, zero-footprint defaults (temp files, no persistent dirs unless overridden), results in `transcripts/` when persisted.
+Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). MVP: manual stop, API-based, zero-footprint defaults (temp files, no persistent dirs unless overridden), results in `transcripts/` when persisted.
 
 ### Project structure
 ```

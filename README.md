@@ -1,12 +1,11 @@
 # supervoxtral
 
-A simple Python CLI/GUI tool to record audio from your microphone, optionally convert it (WAV/MP3/Opus), and send it to transcription/chat APIs such as Mistral Voxtral (chat with audio) or OpenAI Whisper.
+A simple Python CLI/GUI tool to record audio from your microphone, optionally convert it (WAV/MP3/Opus), and send it to Mistral Voxtral transcription/chat APIs.
 
 MVP scope:
 - Manual stop only (no auto-stop on silence, for now).
 - API-based transcription only (no on-device models).
-- Primary provider: Mistral Voxtral using “chat with audio” (input_audio + text prompt).
-- Optional provider: OpenAI Whisper for plain transcription.
+- Primary provider: Mistral Voxtral using “chat with audio” (input_audio + text prompt or plain transcription).
 - Zero-footprint defaults: No persistent directories (`recordings/`, `transcripts/`, `logs/`) created unless overridden via config or `--save-all`. Results printed to console and optionally copied to clipboard.
 - Unified CLI/GUI pipeline for consistent recording, transcription, and output handling.
 
@@ -45,10 +44,6 @@ pip install -e .
 ```
 
 Optional extras:
-- OpenAI Whisper provider:
-  ```
-  pip install -e ".[openai]"
-  ```
 - Dev tools:
   ```
   pip install -e ".[dev]"
@@ -92,7 +87,7 @@ No `.env` or shell environment variables are used for API keys.
 
 - `svx/` — package source
   - `core/` — audio capture, encoding, config, storage, unified recording/transcription pipeline
-  - `providers/` — API providers (Mistral Voxtral, OpenAI Whisper)
+  - `providers/` — API providers (Mistral Voxtral)
   - `ui/` — GUI (Qt-based GUI)
 - recordings/ — captured and converted audio files (created only if keep_audio_files = true or --save-all)
 - transcripts/ — API responses (text/JSON) (created only if keep_transcript_files = true or --save-all)
@@ -183,14 +178,10 @@ A single user message is sent containing the audio and (optionally) text.
   - Sends the audio to Mistral Voxtral as base64 input_audio plus your text prompt.
   - Prints and saves the response to `transcripts/` (if keep_transcript_files=true or --save-all).
 
-- Record with OpenAI Whisper (optional):
-  ```
-  svx --provider whisper --format wav --language fr
-  ```
   Flow:
   - Starts recording WAV.
   - Press Enter to stop.
-  - Sends the audio to Whisper (transcription).
+  - Sends the audio to Voxtral (transcription).
   - Prints and saves the transcript.
 
 Config-driven options (set these in config.toml under [defaults]):
@@ -224,14 +215,11 @@ python -m svx.cli record --prompt "..."
 - Output: text content from the chat response; saved to `transcripts/`.
 
 Recommended formats:
-- MP3 or WAV work well. MP3 reduces file size and upload time.
+- Opus reduces file size and upload time.
 
 Authentication:
 - Mistral: key read from `Config` (user config at `providers.mistral.api_key`).
 
-### OpenAI Whisper (optional)
-- Plain transcription from audio file (WAV recommended).
-- Not applicable yet; OpenAI provider configuration will be documented separately.
 
 ---
 
@@ -256,27 +244,6 @@ The tool will send the converted file if you set `--format mp3` or `--format opu
 
 - Microphone permission: on first run, macOS will ask for microphone access. Approve it in System Settings > Privacy & Security > Microphone if needed.
 - If you face issues with device selection, we will add a `--device` flag to choose a specific input device.
-
----
-
-## Roadmap
-
-- Phase 1 (MVP):
-  - [x] Project skeleton, dependencies, README
-  - [x] CLI: recording command (manual stop)
-  - [x] WAV capture (sounddevice/soundfile)
-  - [x] Conversion via ffmpeg (MP3/Opus)
-  - [x] Provider: Mistral Voxtral (chat with audio + prompt)
-  - [ ] Provider: OpenAI Whisper (optional)
-  - [x] Store outputs in `transcripts/` + logs (conditional on config/overrides)
-  - [x] Unified CLI/GUI pipeline
-  - [x] Centralized Config object
-  - [x] Zero-footprint temp file handling
-
-- Phase 2:
-  - [ ] Minimal TUI (Textual) with a STOP button and keybinding
-  - [ ] Config file and prompts directory
-  - [ ] Better device selection, meter display, progress UI
 
 ---
 
