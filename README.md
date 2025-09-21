@@ -75,11 +75,28 @@ This installs the `svx` command within the virtual environment. Make sure to act
    - Windows: `python -m venv .venv && .\.venv\Scripts\Activate.ps1`
 3. Install in editable mode: `pip install -e .` (or `pip install -e ".[dev]"` for dev tools).
 
-## macOS Shortcuts Integration
+## Quick Start
+
+To get started quickly with SuperVoxtral:
+
+1. Initialize the configuration: `svx config init`
+   This creates the default `config.toml` file with zero-footprint settings.
+
+2. Open the configuration directory: `svx config open`
+   Edit `config.toml` and add your Mistral API key under the `[providers.mistral]` section:
+   ```
+   [providers.mistral]
+   api_key = "your_mistral_api_key_here"
+   ```
+
+3. Launch the GUI for transcription: `svx record --gui --transcribe`
+   This opens the minimal GUI, starts recording on launch, and transcribes the audio upon stopping (results copied to clipboard).
+
+### macOS Shortcuts Integration
 
 To enable fast, hotkey-driven access on macOS, integrate SuperVoxtral with the Shortcuts app. Create a new Shortcut that runs `svx record --gui` via a "Run Shell Script" action (ensure `svx` is in your PATH). Assign a global hotkey in Shortcuts settings for instant GUI launch—ideal for quick voice-to-text workflows, with results copied directly to the clipboard.
 
-### Quick Setup Steps
+#### Quick Setup Steps
 1. Open the Shortcuts app and create a new shortcut.
 2. Add the "Run Shell Script" action with input: `svx record --gui`.
 3. In shortcut details, set a keyboard shortcut (e.g., Cmd+Shift+V).
