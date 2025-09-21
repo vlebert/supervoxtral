@@ -83,7 +83,7 @@ To get started quickly with SuperVoxtral:
    This creates the default `config.toml` file with zero-footprint settings.
 
 2. Open the configuration directory: `svx config open`
-   Edit `config.toml` and add your Mistral API key under the `[providers.mistral]` section:
+   Edit `config.toml` and add your [Mistral API key](https://console.mistral.ai/api-keys) under the `[providers.mistral]` section:
    ```
    [providers.mistral]
    api_key = "your_mistral_api_key_here"
