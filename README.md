@@ -226,6 +226,7 @@ svx record [OPTIONS]
 
 ## Changelog
 
+- 0.1.3: Minor sytle update
 - 0.1.2: Interactive mode in GUI (choose transcribe / prompt / cancel while recording)
 - 0.1.1: Minor updates to default config and default prompt
 
