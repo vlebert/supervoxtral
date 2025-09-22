@@ -22,14 +22,15 @@ The GUI is minimal, launches fast, and can be bound to a system hotkey. Upon sto
 
 The package is available on PyPI. We recommend using `uv` (a fast Python package installer) for a simple, global tool installation—no virtual environment setup required.
 
-- For core CLI functionality:
-  ```
-  uv tool install supervoxtral
-  ```
 
 - For GUI support (includes PySide6):
   ```
   uv tool install "supervoxtral[gui]"
+  ```
+
+- For core CLI only functionality:
+  ```
+  uv tool install supervoxtral
   ```
 
 This installs the `svx` command globally. If you don't have `uv`, install it first via `curl -LsSf https://astral.sh/uv/install.sh | sh` (or from https://docs.astral.sh/uv/getting-started/installation/).
@@ -53,13 +54,10 @@ If you prefer not to use uv, you can install via pip in a virtual environment:
      ```
 
 2. Install the package:
-   ```
-   pip install supervoxtral
-   ```
 
    For GUI support (includes PySide6):
    ```
-   pip install supervoxtral[gui]
+   pip install "supervoxtral[gui]"
    ```
 
 This installs the `svx` command within the virtual environment. Make sure to activate the environment before running `svx`.
