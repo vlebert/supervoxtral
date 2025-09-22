@@ -81,6 +81,18 @@ QPushButton:hover {
     background-color: #2a78ff;
 }
 
+/* Cancel button */
+QPushButton#cancel_btn {
+    background-color: #da3633;
+}
+QPushButton#cancel_btn:hover {
+    background-color: #f85149;
+}
+QPushButton#cancel_btn:disabled {
+    background-color: #8b0000;
+    color: #9fb8e6;
+}
+
 /* Small window border effect (subtle) */
 QWidget#recorder_window {
     border: 1px solid #203040;
@@ -196,6 +208,7 @@ class RecorderWorker(QObject):
     status = Signal(str)
     done = Signal(str)
     error = Signal(str)
+    canceled = Signal()
 
     def __init__(
         self,
@@ -212,6 +225,7 @@ class RecorderWorker(QObject):
         self.save_all = save_all
         self.outfile_prefix = outfile_prefix
         self.mode: str | None = None
+        self.cancel_requested: bool = False
         self._stop_event = threading.Event()
 
     def set_mode(self, mode: str) -> None:
@@ -219,8 +233,10 @@ class RecorderWorker(QObject):
 
     def stop(self) -> None:
         """Request the recording to stop."""
-        if self.mode is None:
-            self.mode = "prompt"
+        self._stop_event.set()
+
+    def cancel(self) -> None:
+        self.cancel_requested = True
         self._stop_event.set()
 
     def _resolve_user_prompt(self) -> str:
@@ -249,7 +265,13 @@ class RecorderWorker(QObject):
             )
             self.status.emit("Recording in progress...")
             wav_path, duration = pipeline.record(self._stop_event)
-            self.status.emit("Recording finished. Processing in progress...")
+            self.status.emit("Recording finished.")
+            if self.cancel_requested:
+                keep_audio = self.save_all or self.cfg.defaults.keep_audio_files
+                pipeline.clean(wav_path, {"wav": wav_path}, keep_audio)
+                self.canceled.emit()
+                return
+            self.status.emit("Processing in progress...")
             while self.mode is None:
                 time.sleep(0.05)
             transcribe_mode = self.mode == "transcribe"
@@ -288,6 +310,16 @@ class RecorderWindow(QWidget):
         self.user_prompt_file = user_prompt_file
         self.save_all = save_all
         self.outfile_prefix = outfile_prefix
+
+        # Background worker (create early for signal connections)
+        self._worker = RecorderWorker(
+            cfg=self.cfg,
+            user_prompt=user_prompt,
+            user_prompt_file=user_prompt_file,
+            save_all=save_all,
+            outfile_prefix=outfile_prefix,
+        )
+        self._thread = threading.Thread(target=self._worker.run, daemon=True)
 
         # Environment and prompt files
 
@@ -355,6 +387,11 @@ class RecorderWindow(QWidget):
         self._prompt_btn.setToolTip("Stop and transcribe with prompt")
         self._prompt_btn.clicked.connect(lambda: self._on_button_clicked("prompt"))
         button_layout.addWidget(self._prompt_btn)
+        self._cancel_btn = QPushButton("Cancel")
+        self._cancel_btn.setObjectName("cancel_btn")
+        self._cancel_btn.setToolTip("Stop recording and quit without processing")
+        self._cancel_btn.clicked.connect(self._on_cancel_clicked)
+        button_layout.addWidget(self._cancel_btn)
         button_layout.addStretch()
         button_widget = QWidget()
         button_widget.setLayout(button_layout)
@@ -363,23 +400,14 @@ class RecorderWindow(QWidget):
         # Keyboard shortcut: Esc to stop
         stop_action = QAction(self)
         stop_action.setShortcut(QKeySequence.StandardKey.Cancel)  # Esc
-        stop_action.triggered.connect(lambda: self._on_button_clicked("prompt"))
+        stop_action.triggered.connect(lambda: self._worker.cancel())
         self.addAction(stop_action)
-
-        # Background worker
-        self._worker = RecorderWorker(
-            cfg=self.cfg,
-            user_prompt=user_prompt,
-            user_prompt_file=user_prompt_file,
-            save_all=save_all,
-            outfile_prefix=outfile_prefix,
-        )
-        self._thread = threading.Thread(target=self._worker.run, daemon=True)
 
         # Signals wiring
         self._worker.status.connect(self._on_status)
         self._worker.done.connect(self._on_done)
         self._worker.error.connect(self._on_error)
+        self._worker.canceled.connect(self._close_soon)
 
         # Apply stylesheet to the application for consistent appearance
         app = QApplication.instance()
@@ -425,16 +453,23 @@ class RecorderWindow(QWidget):
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         # Attempt to stop recording if the user closes the window via window controls.
-        self._worker.set_mode("prompt")
-        self._worker.stop()
+        self._worker.cancel()
         super().closeEvent(event)
 
     def _on_button_clicked(self, mode: str) -> None:
         self._transcribe_btn.setEnabled(False)
         self._prompt_btn.setEnabled(False)
+        self._cancel_btn.setEnabled(False)
         self._status_label.setText("Stopping and processing...")
         self._worker.set_mode(mode)
         self._worker.stop()
+
+    def _on_cancel_clicked(self) -> None:
+        self._transcribe_btn.setEnabled(False)
+        self._prompt_btn.setEnabled(False)
+        self._cancel_btn.setEnabled(False)
+        self._status_label.setText("Canceling...")
+        self._worker.cancel()
 
     # --- Drag handling for frameless window ---
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
@@ -465,8 +500,7 @@ class RecorderWindow(QWidget):
     def keyPressEvent(self, event) -> None:  # type: ignore[override]
         # Qt.Key_Escape is a safety stop
         if event.key() == Qt.Key.Key_Escape:
-            self._worker.set_mode("prompt")
-            self._worker.stop()
+            self._worker.cancel()
         else:
             super().keyPressEvent(event)
 
