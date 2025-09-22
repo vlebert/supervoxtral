@@ -10,8 +10,6 @@ For instance, use a prompt like: "_Transcribe this audio precisely and remove al
 
 The GUI is minimal, launches fast, and can be bound to a system hotkey. Upon stopping recording, it transcribes via the pipeline and copies the result directly to the system clipboard, enabling efficient voice-driven workflows: e.g., dictating code snippets into an IDE or prompting LLMs via audio without typing.
 
----
-
 ## Requirements
 
 - Python 3.11+
@@ -19,8 +17,6 @@ The GUI is minimal, launches fast, and can be bound to a system hotkey. Upon sto
   - macOS: `brew install ffmpeg`
   - Ubuntu/Debian: `sudo apt-get install ffmpeg`
   - Windows: https://ffmpeg.org/download.html
-
----
 
 ## Installation
 
@@ -102,8 +98,6 @@ To enable fast, hotkey-driven access on macOS, integrate SuperVoxtral with the S
 3. In shortcut details, set a keyboard shortcut (e.g., Cmd+Shift+V).
 
 ![macOS Shortcut Setup](macos-shortcut.png)
-
----
 
 ## Configuration (API keys and prompts)
 
@@ -193,8 +187,6 @@ file = "~/.config/supervoxtral/prompt/user.md"
 No `.env` or shell environment variables are used for API keys.
 
 
----
-
 ## Usage (CLI)
 
 The CLI provides config utilities and a unified `record` entrypoint for both CLI and GUI modes, using a centralized pipeline for consistent behavior (recording, conversion, transcription, saving, clipboard copy, logging).
@@ -234,8 +226,9 @@ svx record [OPTIONS]
 3. User prompt file (user.md in config dir)
 4. Fallback: "What's in this audio?"
 
+## Changelog
 
----
+- 0.1.1: Minor updates to default config and default prompt
 
 ## License
 
