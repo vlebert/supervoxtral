@@ -65,32 +65,32 @@ QLabel#info_label {
 
 /* Stop button */
 QPushButton {
-    background-color: #1f6feb;
+    background-color: #1e40af;
     color: #ffffff;
     border: none;
-    border-radius: 6px;
-    padding: 8px 14px;
+    border-radius: 2px;
+    padding: 4px 8px;
     margin: 6px;
-    min-width: 80px;
+    min-width: 60px;
 }
 QPushButton:disabled {
-    background-color: #274a7a;
-    color: #9fb8e6;
+    background-color: #374151;
+    color: #9ca3af;
 }
 QPushButton:hover {
-    background-color: #2a78ff;
+    background-color: #1d4ed8;
 }
 
 /* Cancel button */
 QPushButton#cancel_btn {
-    background-color: #da3633;
+    background-color: #b91c1c;
 }
 QPushButton#cancel_btn:hover {
-    background-color: #f85149;
+    background-color: #ef4444;
 }
 QPushButton#cancel_btn:disabled {
-    background-color: #8b0000;
-    color: #9fb8e6;
+    background-color: #4b5563;
+    color: #9ca3af;
 }
 
 /* Small window border effect (subtle) */
