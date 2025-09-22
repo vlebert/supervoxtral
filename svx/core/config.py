@@ -227,7 +227,7 @@ def init_user_config(force: bool = False, prompt_file: Path | None = None) -> Pa
         "# Audio recording parameters\n"
         "rate = 16000\n"
         "channels = 1\n"
-        'device = ""\n\n'
+        '#device = ""\n\n'
         "# Output persistence:\n"
         "# - keep_audio_files: false uses temp files (no recordings/ dir),\n"
         "#   true saves to recordings/\n"
