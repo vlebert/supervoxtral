@@ -50,6 +50,60 @@ class RecordingPipeline:
             self.progress_callback(msg)
         logging.info(msg)
 
+    def record(self, stop_event: threading.Event | None = None) -> tuple[Path, float]:
+        """
+        Record audio and return wav_path, duration.
+
+        Returns:
+            tuple[Path, float]: wav_path, duration.
+        """
+        # Resolve parameters
+        _provider = self.cfg.defaults.provider
+        audio_format = self.cfg.defaults.format
+        model = self.cfg.defaults.model
+        _original_model = model
+        _language = self.cfg.defaults.language
+        rate = self.cfg.defaults.rate
+        channels = self.cfg.defaults.channels
+        device = self.cfg.defaults.device
+        base = self.outfile_prefix or f"rec_{timestamp()}"
+        keep_audio = self.save_all or self.cfg.defaults.keep_audio_files
+
+        # Validation (fail fast)
+        if channels not in (1, 2):
+            raise ValueError("channels must be 1 or 2")
+        if rate <= 0:
+            raise ValueError("rate must be > 0")
+        if audio_format not in {"wav", "mp3", "opus"}:
+            raise ValueError("format must be one of wav|mp3|opus")
+
+        stop_for_recording = stop_event or threading.Event()
+
+        self._status("Recording...")
+        if keep_audio:
+            self.cfg.recordings_dir.mkdir(parents=True, exist_ok=True)
+            wav_path = self.cfg.recordings_dir / f"{base}.wav"
+            duration = record_wav(
+                wav_path,
+                samplerate=rate,
+                channels=channels,
+                device=device,
+                stop_event=stop_for_recording,
+            )
+        else:
+            # Use mktemp for temp wav_path
+            wav_path = Path(tempfile.mktemp(suffix=".wav"))
+            duration = record_wav(
+                wav_path,
+                samplerate=rate,
+                channels=channels,
+                device=device,
+                stop_event=stop_for_recording,
+            )
+
+        self._status("Recording completed.")
+        return wav_path, duration
+
     def _setup_save_all(self) -> None:
         """Apply save_all overrides: set keeps to True, create dirs, add file logging."""
         if not self.save_all:
@@ -78,6 +132,127 @@ class RecordingPipeline:
             root_logger.addHandler(file_handler)
             logging.info("File logging enabled for this run")
 
+    def process(
+        self, wav_path: Path, duration: float, transcribe_mode: bool, user_prompt: str | None = None
+    ) -> dict[str, Any]:
+        """
+        Process recorded audio: convert if needed, transcribe, save, copy.
+
+        Args:
+            wav_path: Path to the recorded WAV file.
+            duration: Recording duration in seconds.
+            transcribe_mode: Whether to use pure transcription mode.
+            user_prompt: User prompt to use (None for transcribe_mode).
+
+        Returns:
+            Dict with 'text' (str), 'raw' (dict), 'duration' (float),
+            'paths' (dict of Path or None).
+        """
+        # Resolve parameters
+        provider = self.cfg.defaults.provider
+        audio_format = self.cfg.defaults.format
+        model = self.cfg.defaults.model
+        original_model = model
+        if transcribe_mode:
+            model = "voxtral-mini-latest"
+            if original_model != "voxtral-mini-latest":
+                logging.warning(
+                    "Transcribe mode: model override from '%s' to 'voxtral-mini-latest'\n"
+                    "(optimized for transcription).",
+                    original_model,
+                )
+        language = self.cfg.defaults.language
+        if wav_path.stem.endswith(".wav"):
+            base = wav_path.stem.replace(".wav", "")
+        else:
+            base = wav_path.stem
+        keep_transcript = self.save_all or self.cfg.defaults.keep_transcript_files
+        copy_to_clip = self.cfg.defaults.copy
+
+        # Resolve user prompt if not provided
+        final_user_prompt = None
+        if not transcribe_mode:
+            if user_prompt is None:
+                final_user_prompt = self.cfg.resolve_prompt(self.user_prompt, self.user_prompt_file)
+            else:
+                final_user_prompt = user_prompt
+            self._status("Transcribe mode not activated: using prompt.")
+        else:
+            self._status("Transcribe mode activated: no prompt used.")
+
+        paths: dict[str, Path | None] = {"wav": wav_path}
+
+        # Convert if needed
+        to_send_path = wav_path
+        _converted = False
+        if audio_format in {"mp3", "opus"}:
+            self._status("Converting...")
+            to_send_path = convert_audio(wav_path, audio_format)
+            logging.info("Converted %s -> %s", wav_path, to_send_path)
+            paths["converted"] = to_send_path
+            _converted = True
+
+        # Transcribe
+        self._status("Transcribing...")
+        prov = get_provider(provider, cfg=self.cfg)
+        result = prov.transcribe(
+            to_send_path,
+            user_prompt=final_user_prompt,
+            model=model,
+            language=language,
+            transcribe_mode=transcribe_mode,
+        )
+        text = result["text"]
+        raw = result["raw"]
+
+        # Save if keeping transcripts
+        if keep_transcript:
+            self.cfg.transcripts_dir.mkdir(parents=True, exist_ok=True)
+            txt_path, json_path = save_transcript(
+                self.cfg.transcripts_dir, base, provider, text, raw
+            )
+            paths["txt"] = txt_path
+            paths["json"] = json_path
+        else:
+            paths["txt"] = None
+            paths["json"] = None
+
+        # Copy to clipboard
+        if copy_to_clip:
+            try:
+                copy_to_clipboard(text)
+                logging.info("Copied transcription to clipboard")
+            except Exception as e:
+                logging.warning("Failed to copy to clipboard: %s", e)
+
+        logging.info("Processing finished (%.2fs)", duration)
+        return {
+            "text": text,
+            "raw": raw,
+            "duration": duration,
+            "paths": paths,
+        }
+
+    def clean(self, wav_path: Path, paths: dict[str, Path | None], keep_audio: bool) -> None:
+        """
+        Clean up temporary files.
+
+        Args:
+            wav_path: The original WAV path.
+            paths: The paths dict from process().
+            keep_audio: Whether to keep audio files (if True, no deletion).
+        """
+        if not keep_audio and wav_path.exists():
+            wav_path.unlink()
+            logging.info("Deleted temp WAV: %s", wav_path)
+
+        if "converted" in paths and paths["converted"] and paths["converted"] != wav_path:
+            if paths["converted"].exists():
+                paths["converted"].unlink()
+                logging.info("Deleted temp converted: %s", paths["converted"])
+
+        self._status("Cleanup completed.")
+
     def run(self, stop_event: threading.Event | None = None) -> dict[str, Any]:
         """
         Execute the full pipeline.
@@ -94,167 +269,18 @@ class RecordingPipeline:
         """
         self._setup_save_all()
 
-        # Resolve parameters
-        provider = self.cfg.defaults.provider
-        audio_format = self.cfg.defaults.format
-        model = self.cfg.defaults.model
-        original_model = model
-        if self.transcribe_mode:
-            model = "voxtral-mini-latest"
-            if original_model != "voxtral-mini-latest":
-                logging.warning(
-                    "Mode Transcribe : modèle override de '%s' vers 'voxtral-mini-latest' "
-                    "(optimisé pour la transcription).",
-                    original_model,
-                )
-        language = self.cfg.defaults.language
-        rate = self.cfg.defaults.rate
-        channels = self.cfg.defaults.channels
-        device = self.cfg.defaults.device
-        base = self.outfile_prefix or f"rec_{timestamp()}"
+        wav_path, duration = self.record(stop_event)
+        keep_audio = self.save_all or self.cfg.defaults.keep_audio_files
+
         if self.transcribe_mode:
             final_user_prompt = None
             self._status("Mode Transcribe activated: no prompt used.")
         else:
             final_user_prompt = self.cfg.resolve_prompt(self.user_prompt, self.user_prompt_file)
-        keep_audio = self.cfg.defaults.keep_audio_files
-        keep_transcript = self.cfg.defaults.keep_transcript_files
-        copy_to_clip = self.cfg.defaults.copy
 
-        # Validation (fail fast)
-        if channels not in (1, 2):
-            raise ValueError("channels must be 1 or 2")
-        if rate <= 0:
-            raise ValueError("rate must be > 0")
-        if audio_format not in {"wav", "mp3", "opus"}:  # noqa: E501
-            raise ValueError("format must be one of wav|mp3|opus")
+        result = self.process(wav_path, duration, self.transcribe_mode, final_user_prompt)
 
-        paths: dict[str, Path | None] = {}
-        stop_for_recording = stop_event or threading.Event()
+        self.clean(wav_path, result["paths"], keep_audio=keep_audio)
 
-        try:
-            self._status("Recording...")
-            if keep_audio:
-                self.cfg.recordings_dir.mkdir(parents=True, exist_ok=True)
-                wav_path = self.cfg.recordings_dir / f"{base}.wav"
-                duration = record_wav(
-                    wav_path,
-                    samplerate=rate,
-                    channels=channels,
-                    device=device,
-                    stop_event=stop_for_recording,
-                )
-                to_send_path = wav_path
-                paths["wav"] = wav_path
-            else:
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    tmp_path = Path(tmpdir)
-                    wav_path = tmp_path / f"{base}.wav"
-                    duration = record_wav(
-                        wav_path,
-                        samplerate=rate,
-                        channels=channels,
-                        device=device,
-                        stop_event=stop_for_recording,
-                    )
-                    to_send_path = wav_path
-
-                    # Convert if needed
-                    if audio_format in {"mp3", "opus"}:
-                        self._status("Converting...")
-                        to_send_path = convert_audio(wav_path, audio_format)
-                        logging.info("Converted %s -> %s", wav_path, to_send_path)
-
-                    # Transcribe
-                    self._status("Transcribing...")
-                    prov = get_provider(provider, cfg=self.cfg)
-                    result = prov.transcribe(
-                        to_send_path,
-                        user_prompt=final_user_prompt,
-                        model=model,
-                        language=language,
-                        transcribe_mode=self.transcribe_mode,
-                    )
-                    text = result["text"]
-                    raw = result["raw"]
-
-                    # Save if keeping transcripts
-                    if keep_transcript:
-                        self.cfg.transcripts_dir.mkdir(parents=True, exist_ok=True)
-                        txt_path, json_path = save_transcript(
-                            self.cfg.transcripts_dir, base, provider, text, raw
-                        )
-                        paths["txt"] = txt_path
-                        paths["json"] = json_path
-                    else:
-                        paths["txt"] = None
-                        paths["json"] = None
-
-                    # Copy to clipboard
-                    if copy_to_clip:
-                        try:
-                            copy_to_clipboard(text)
-                            logging.info("Copied transcription to clipboard")
-                        except Exception as e:
-                            logging.warning("Failed to copy to clipboard: %s", e)
-
-                    logging.info("Pipeline finished (%.2fs)", duration)
-                    return {
-                        "text": text,
-                        "raw": raw,
-                        "duration": duration,
-                        "paths": paths,
-                    }
-
-            # For keep_audio=True: continue outside tempdir
-            # Convert if needed
-            if audio_format in {"mp3", "opus"}:
-                self._status("Converting...")
-                to_send_path = convert_audio(wav_path, audio_format)
-                logging.info("Converted %s -> %s", wav_path, to_send_path)
-                paths["converted"] = to_send_path
-
-            # Transcribe
-            self._status("Transcribing...")
-            prov = get_provider(provider, cfg=self.cfg)
-            result = prov.transcribe(
-                to_send_path,
-                user_prompt=final_user_prompt,
-                model=model,
-                language=language,
-                transcribe_mode=self.transcribe_mode,
-            )
-            text = result["text"]
-            raw = result["raw"]
-
-            # Save if keeping transcripts
-            if keep_transcript:
-                self.cfg.transcripts_dir.mkdir(parents=True, exist_ok=True)
-                txt_path, json_path = save_transcript(
-                    self.cfg.transcripts_dir, base, provider, text, raw
-                )
-                paths["txt"] = txt_path
-                paths["json"] = json_path
-            else:
-                paths["txt"] = None
-                paths["json"] = None
-
-            # Copy to clipboard
-            if copy_to_clip:
-                try:
-                    copy_to_clipboard(text)
-                    logging.info("Copied transcription to clipboard")
-                except Exception as e:
-                    logging.warning("Failed to copy to clipboard: %s", e)
-
-            logging.info("Pipeline finished (%.2fs)", duration)
-            return {
-                "text": text,
-                "raw": raw,
-                "duration": duration,
-                "paths": paths,
-            }
-
-        except Exception:
-            logging.exception("Pipeline failed")
-            raise
+        logging.info("Pipeline finished (%.2fs)", duration)
+        return result
