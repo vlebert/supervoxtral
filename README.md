@@ -1,6 +1,6 @@
 # supervoxtral
 
-![Supervoxtral](supervoxtral.png)
+![Supervoxtral](supervoxtral.gif)
 
 SuperVoxtral is a lightweight Python CLI/GUI utility for recording microphone audio and integrate with Mistral's Voxtral APIs for transcription or audio-enabled chat.
 
@@ -228,6 +228,7 @@ svx record [OPTIONS]
 
 ## Changelog
 
+- 0.1.2: Interactive mode in GUI (choose transcribe / prompt / cancel while recording)
 - 0.1.1: Minor updates to default config and default prompt
 
 ## License
