@@ -191,6 +191,11 @@ def record(
         user_prompt = None
         user_prompt_file = None
 
+    if gui and transcribe:
+        console.print("[yellow]Warning: --transcribe has no effect in GUI mode.[/yellow]")
+        console.print("[yellow]Use the 'Transcribe' or 'Prompt' buttons in the interface.[/yellow]")
+        transcribe = False
+
     # If GUI requested, launch GUI with the resolved parameters and exit.
     if gui:
         from svx.ui.qt_app import run_gui
@@ -202,7 +207,6 @@ def record(
             user_prompt_file=user_prompt_file,
             save_all=save_all,
             outfile_prefix=outfile_prefix,
-            transcribe_mode=transcribe,
         )
         return
 

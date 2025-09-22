@@ -1,6 +1,6 @@
 # supervoxtral
 
-![Supervoxtral](supervoxtral.png)
+![Supervoxtral](supervoxtral.gif)
 
 SuperVoxtral is a lightweight Python CLI/GUI utility for recording microphone audio and integrate with Mistral's Voxtral APIs for transcription or audio-enabled chat.
 
@@ -85,8 +85,8 @@ To get started quickly with SuperVoxtral:
    api_key = "your_mistral_api_key_here"
    ```
 
-3. Launch the GUI for transcription: `svx record --gui --transcribe`
-   This opens the minimal GUI, starts recording on launch, and transcribes the audio upon stopping (results copied to clipboard).
+3. Launch the GUI: `svx record --gui`
+   This opens the minimal GUI, starts recording immediately; click 'Transcribe' for pure transcription (no prompt) or 'Prompt' for prompted transcription (resolved prompt); --transcribe ignored with warning (results copied to clipboard).
 
 ### macOS Shortcuts Integration
 
@@ -206,7 +206,7 @@ svx record [OPTIONS]
 - `--user-prompt-file PATH` (or `--prompt-file PATH`): Path to a markdown file with the user prompt.
 - `--transcribe`: Enable pure transcription mode (ignores prompts; uses dedicated endpoint).
 - `--outfile-prefix PREFIX`: Custom prefix for output files (default: timestamp).
-- `--gui`: Launch the GUI frontend (respects config and other CLI options).
+- `--gui`: Launch the GUI frontend (interactive: recording starts immediately; buttons 'Transcribe' (pure, no prompt) or 'Prompt' (with resolved prompt); respects config and other CLI options; --transcribe ignored with warning).
 - `--save-all`: Override config to keep audio, transcripts, and logs for this run.
 - `--log-level LEVEL`: Set logging level (DEBUG, INFO, WARNING, ERROR; default: INFO).
 
@@ -218,7 +218,7 @@ svx record [OPTIONS]
 - Transcribe only: `svx record --transcribe`
   - No prompt; direct transcription. Add `--save-all` to persist.
 - Launch GUI: `svx record --gui`
-  - GUI respects config.toml and CLI flags (e.g., `--gui --save-all`).
+  - Interactive mode: recording starts immediately; click 'Transcribe' (pure transcription, no prompt) or 'Prompt' (with resolved prompt); --transcribe ignored with warning. GUI respects config.toml and CLI flags (e.g., `--gui --save-all`).
 
 **Prompt Resolution Priority** (for non-transcribe mode):
 1. CLI `--user-prompt` or `--user-prompt-file`
@@ -228,6 +228,7 @@ svx record [OPTIONS]
 
 ## Changelog
 
+- 0.1.2: Interactive mode in GUI (choose transcribe / prompt / cancel while recording)
 - 0.1.1: Minor updates to default config and default prompt
 
 ## License

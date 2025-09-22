@@ -34,9 +34,9 @@ supervoxtral/
 
 - **Entry**: `svx/cli.py` Typer `record` command parses args (e.g., --prompt, --save-all, --gui, --transcribe).
 - **Config & Prompt**: Load `Config` via `Config.load()` (`core/config.py`); if transcribe_mode, skip prompt resolution; else resolve prompt with `cfg.resolve_prompt()` (`core/prompt.py`).
-- **Pipeline**: Run `RecordingPipeline` (`core/pipeline.py`): record WAV/stop (`core/audio.py`), optional conversion (ffmpeg), get provider/init (`providers/__init__.py`, e.g., `mistral.py` from `cfg`); if transcribe_mode: no prompt, model override to voxtral-mini-latest (with warning if changed), pass transcribe_mode to provider.transcribe; transcribe, conditional save (`core/storage.py` based on `keep_*`/`save_all`), clipboard copy, logging setup.
+- **Pipeline**: Run `RecordingPipeline` (`core/pipeline.py`): record WAV/stop (`core/audio.py`), optional conversion (ffmpeg), get provider/init (`providers/__init__.py`, e.g., `mistral.py` from `cfg`); if transcribe_mode (CLI only): no prompt, model override to voxtral-mini-latest (with warning if changed), pass transcribe_mode to provider.transcribe; for GUI: --transcribe ignored (warning), recording starts immediately, uses modular record()/process()/clean() with dynamic mode (Transcribe: no prompt, model override; Prompt: resolved prompt); transcribe, conditional save (`core/storage.py` based on `keep_*`/`save_all`), clipboard copy, logging setup.
 - **Cleanup**: Temp files auto-deleted (tempfile) if `keep_*=false`; dirs created only if persistence enabled.
-- **End**: Return `{"text": str, "raw": dict, "duration": float, "paths": dict}`; CLI prints result, GUI emits progress/updates via callback.
+- **End**: Return `{"text": str, "raw": dict, "duration": float, "paths": dict}`; CLI prints result, GUI emits progress/updates via callback (buttons: 'Transcribe' for stop/transcribe without prompt; 'Prompt' for stop/use resolved prompt; default 'Prompt' on Esc/close).
 
 ## Build & test
 ```bash
