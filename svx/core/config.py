@@ -380,19 +380,18 @@ class Config:
                     else None,
                 )
                 prompts_data["default"] = entry
-            else:  # new nested style, only populate "default" for phase 1
-                default_raw = prompt_raw.get("default", {})
-                if isinstance(default_raw, dict):
-                    entry = PromptEntry(
-                        text=default_raw.get("text")
-                        if isinstance(default_raw.get("text"), str)
-                        else None,
-                        file=default_raw.get("file")
-                        if isinstance(default_raw.get("file"), str)
-                        else None,
-                    )
-                    prompts_data["default"] = entry
-                # Ignore other keys for now (phase 1)
+            else:  # new nested style
+                for key, entry_raw in prompt_raw.items():
+                    if isinstance(entry_raw, dict):
+                        entry = PromptEntry(
+                            text=entry_raw.get("text")
+                            if isinstance(entry_raw.get("text"), str)
+                            else None,
+                            file=entry_raw.get("file")
+                            if isinstance(entry_raw.get("file"), str)
+                            else None,
+                        )
+                        prompts_data[key] = entry
         # Ensure "default" always exists
         if "default" not in prompts_data:
             prompts_data["default"] = PromptEntry()

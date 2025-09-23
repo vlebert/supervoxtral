@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
 import svx.core.config as config
 from svx.core.config import Config
 from svx.core.pipeline import RecordingPipeline
+from svx.core.prompt import resolve_user_prompt
 
 __all__ = ["RecorderWindow", "run_gui"]
 
@@ -239,11 +240,11 @@ class RecorderWorker(QObject):
         self.cancel_requested = True
         self._stop_event.set()
 
-    def _resolve_user_prompt(self) -> str:
+    def _resolve_user_prompt(self, key: str) -> str:
         """
-        Determine the final user prompt using the shared resolver.
+        Determine the final user prompt using the shared resolver for the given key.
         """
-        return self.cfg.resolve_prompt(self.user_prompt, self.user_prompt_file)
+        return resolve_user_prompt(self.cfg, None, None, self.cfg.user_prompt_dir, key=key)
 
     def run(self) -> None:
         """
@@ -275,7 +276,7 @@ class RecorderWorker(QObject):
             while self.mode is None:
                 time.sleep(0.05)
             transcribe_mode = self.mode == "transcribe"
-            user_prompt = None if transcribe_mode else self._resolve_user_prompt()
+            user_prompt = None if transcribe_mode else self._resolve_user_prompt(self.mode)
             result = pipeline.process(wav_path, duration, transcribe_mode, user_prompt)
             keep_audio = self.save_all or self.cfg.defaults.keep_audio_files
             pipeline.clean(wav_path, result["paths"], keep_audio)
@@ -310,6 +311,7 @@ class RecorderWindow(QWidget):
         self.user_prompt_file = user_prompt_file
         self.save_all = save_all
         self.outfile_prefix = outfile_prefix
+        self.prompt_keys = sorted(self.cfg.prompt.prompts.keys())
 
         # Background worker (create early for signal connections)
         self._worker = RecorderWorker(
@@ -381,12 +383,15 @@ class RecorderWindow(QWidget):
         button_layout.addStretch()
         self._transcribe_btn = QPushButton("Transcribe")
         self._transcribe_btn.setToolTip("Stop and transcribe without prompt")
-        self._transcribe_btn.clicked.connect(lambda: self._on_button_clicked("transcribe"))
+        self._transcribe_btn.clicked.connect(lambda: self._on_mode_selected("transcribe"))
         button_layout.addWidget(self._transcribe_btn)
-        self._prompt_btn = QPushButton("Prompt")
-        self._prompt_btn.setToolTip("Stop and transcribe with prompt")
-        self._prompt_btn.clicked.connect(lambda: self._on_button_clicked("prompt"))
-        button_layout.addWidget(self._prompt_btn)
+        self._prompt_buttons: dict[str, QPushButton] = {}
+        for key in self.prompt_keys:
+            btn = QPushButton(key.capitalize())
+            btn.setToolTip(f"Stop and transcribe with '{key}' prompt")
+            btn.clicked.connect(lambda k=key: self._on_mode_selected(k))
+            self._prompt_buttons[key] = btn
+            button_layout.addWidget(btn)
         self._cancel_btn = QPushButton("Cancel")
         self._cancel_btn.setObjectName("cancel_btn")
         self._cancel_btn.setToolTip("Stop recording and quit without processing")
@@ -396,6 +401,8 @@ class RecorderWindow(QWidget):
         button_widget = QWidget()
         button_widget.setLayout(button_layout)
         layout.addWidget(button_widget, 0, Qt.AlignmentFlag.AlignCenter)
+
+        self._action_buttons = [self._transcribe_btn] + list(self._prompt_buttons.values())
 
         # Keyboard shortcut: Esc to stop
         stop_action = QAction(self)
@@ -456,17 +463,17 @@ class RecorderWindow(QWidget):
         self._worker.cancel()
         super().closeEvent(event)
 
-    def _on_button_clicked(self, mode: str) -> None:
-        self._transcribe_btn.setEnabled(False)
-        self._prompt_btn.setEnabled(False)
+    def _on_mode_selected(self, mode: str) -> None:
+        for btn in self._action_buttons:
+            btn.setEnabled(False)
         self._cancel_btn.setEnabled(False)
         self._status_label.setText("Stopping and processing...")
         self._worker.set_mode(mode)
         self._worker.stop()
 
     def _on_cancel_clicked(self) -> None:
-        self._transcribe_btn.setEnabled(False)
-        self._prompt_btn.setEnabled(False)
+        for btn in self._action_buttons:
+            btn.setEnabled(False)
         self._cancel_btn.setEnabled(False)
         self._status_label.setText("Canceling...")
         self._worker.cancel()
