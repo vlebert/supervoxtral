@@ -72,7 +72,7 @@ def config_show() -> None:
     user_prompt_file = cfg.user_prompt_dir / "user.md"
 
     defaults_section = asdict(cfg.defaults)
-    prompt_section = asdict(cfg.prompt)
+    prompt_section = {k: asdict(e) for k, e in cfg.prompt.prompts.items()}
 
     # Resolve prompt source (same logic as record command, but read-only)
     resolved_prompt = cfg.resolve_prompt(None, None)

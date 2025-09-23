@@ -242,13 +242,15 @@ def init_user_config(force: bool = False, prompt_file: Path | None = None) -> Pa
         "copy = true\n\n"
         '# Log level: "DEBUG" | "INFO" | "WARNING" | "ERROR"\n'
         'log_level = "INFO"\n\n'
-        "[prompt]\n"
+        "[prompt.default]\n"
         "# Default user prompt source:\n"
         "# - Option 1: Use a file (recommended)\n"
         f'file = "{str(prompt_file)}"\n'
         "#\n"
         "# - Option 2: Inline prompt (less recommended for long text)\n"
         '# text = "Please transcribe the audio and provide a concise summary in French."\n'
+        "#\n"
+        "# For multiple prompts in future, add [prompt.other] sections.\n"
     )
 
     if not USER_CONFIG_FILE.exists() or force:
@@ -282,9 +284,14 @@ class DefaultsConfig:
 
 
 @dataclass
-class PromptConfig:
+class PromptEntry:
     text: str | None = None
     file: str | None = None
+
+
+@dataclass
+class PromptConfig:
+    prompts: dict[str, PromptEntry] = field(default_factory=lambda: {"default": PromptEntry()})
 
 
 @dataclass
@@ -356,11 +363,40 @@ class Config:
                 providers_data[name] = ProviderConfig(api_key=api_key)
         # Prompt
         prompt_raw = user_config.get("prompt", {})
-        prompt_data = {
-            "text": prompt_raw.get("text") if isinstance(prompt_raw.get("text"), str) else None,
-            "file": prompt_raw.get("file") if isinstance(prompt_raw.get("file"), str) else None,
-        }
-        prompt = PromptConfig(**prompt_data)
+        prompts_data: dict[str, PromptEntry] = {}
+        if isinstance(prompt_raw, dict):
+            if any(k in prompt_raw for k in ["text", "file"]):  # old flat style
+                logging.warning(
+                    "Old [prompt] format detected in %s; "
+                    "please migrate to [prompt.default] manually.",
+                    USER_CONFIG_FILE,
+                )
+                entry = PromptEntry(
+                    text=prompt_raw.get("text")
+                    if isinstance(prompt_raw.get("text"), str)
+                    else None,
+                    file=prompt_raw.get("file")
+                    if isinstance(prompt_raw.get("file"), str)
+                    else None,
+                )
+                prompts_data["default"] = entry
+            else:  # new nested style, only populate "default" for phase 1
+                default_raw = prompt_raw.get("default", {})
+                if isinstance(default_raw, dict):
+                    entry = PromptEntry(
+                        text=default_raw.get("text")
+                        if isinstance(default_raw.get("text"), str)
+                        else None,
+                        file=default_raw.get("file")
+                        if isinstance(default_raw.get("file"), str)
+                        else None,
+                    )
+                    prompts_data["default"] = entry
+                # Ignore other keys for now (phase 1)
+        # Ensure "default" always exists
+        if "default" not in prompts_data:
+            prompts_data["default"] = PromptEntry()
+        prompt = PromptConfig(prompts=prompts_data)
         data = {
             "defaults": defaults,
             "providers": providers_data,
@@ -376,7 +412,7 @@ class Config:
     def resolve_prompt(self, inline: str | None = None, file_path: Path | None = None) -> str:
         from svx.core.prompt import resolve_user_prompt
 
-        return resolve_user_prompt(self, inline, file_path, self.user_prompt_dir)
+        return resolve_user_prompt(self, inline, file_path, self.user_prompt_dir, key="default")
 
     def get_provider_config(self, name: str) -> dict[str, Any]:
         return asdict(self.providers.get(name, ProviderConfig()))
