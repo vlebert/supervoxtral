@@ -12,6 +12,7 @@ Intended to be small and dependency-light so it can be imported broadly.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
 from .config import USER_PROMPT_DIR, Config, PromptEntry
@@ -121,22 +122,45 @@ def resolve_user_prompt(
         return ""
 
     key = key or "default"
-    suppliers = [
-        lambda: _strip(inline),
-        lambda: _read(file),
-        lambda: _from_user_cfg(key),
-        _from_user_prompt_dir,
+
+    # Suppliers annotated with a name for tracing which one returned the prompt.
+    named_suppliers: list[tuple[str, Callable[[], str]]] = [
+        ("inline", lambda: _strip(inline)),
+        ("file", lambda: _read(file)),
+        (f"prompt_config[{key}]", lambda: _from_user_cfg(key)),
+        ("user_prompt_dir/user.md", _from_user_prompt_dir),
     ]
 
-    for supplier in suppliers:
+    for name, supplier in named_suppliers:
         try:
             val = supplier()
             if val:
+                # Log which supplier provided the prompt and a short snippet for debugging.
+                try:
+                    if len(val) > 200:
+                        snippet = val[:200] + "..."
+                    else:
+                        snippet = val
+                    logging.info(
+                        "resolve_user_prompt: supplier '%s' provided prompt snippet: %s",
+                        name,
+                        snippet,
+                    )
+                except Exception:
+                    # Ensure logging failures do not change behavior.
+                    logging.info(
+                        "resolve_user_prompt: supplier '%s' provided a prompt "
+                        "(snippet unavailable)",
+                        name,
+                    )
                 return val
         except Exception as e:
-            logging.debug("Prompt supplier failed: %s", e)
+            logging.debug("Prompt supplier '%s' failed: %s", name, e)
 
-    return "What's in this audio?"
+    # Final fallback
+    fallback = "What's in this audio?"
+    logging.info("resolve_user_prompt: no supplier provided a prompt, using fallback: %s", fallback)
+    return fallback
 
 
 def init_user_prompt_file(force: bool = False) -> Path:

@@ -180,6 +180,8 @@ class RecordingPipeline:
         else:
             self._status("Transcribe mode activated: no prompt used.")
 
+        logging.debug(f"Applied prompt: {final_user_prompt or 'None (transcribe mode)'}")
+
         paths: dict[str, Path | None] = {"wav": wav_path}
 
         # Convert if needed

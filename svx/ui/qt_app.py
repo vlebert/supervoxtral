@@ -273,10 +273,39 @@ class RecorderWorker(QObject):
                 self.canceled.emit()
                 return
             self.status.emit("Processing in progress...")
+            # Wait for user to select mode in the GUI
             while self.mode is None:
                 time.sleep(0.05)
+
+            # Log the selected mode/key for debugging prompt application
+            try:
+                logging.info("RecorderWorker: selected mode/key: %s", self.mode)
+            except Exception:
+                # ensure failures in logging don't break the worker
+                pass
+
             transcribe_mode = self.mode == "transcribe"
-            user_prompt = None if transcribe_mode else self._resolve_user_prompt(self.mode)
+            if transcribe_mode:
+                user_prompt = None
+            else:
+                # Resolve the user prompt for the selected key and log a short snippet
+                user_prompt = self._resolve_user_prompt(self.mode)
+                try:
+                    if user_prompt:
+                        snippet = (
+                            user_prompt[:200] + "..." if len(user_prompt) > 200 else user_prompt
+                        )
+                    else:
+                        snippet = "<EMPTY>"
+                    logging.info(
+                        "RecorderWorker: resolved prompt snippet for key '%s': %s",
+                        self.mode,
+                        snippet,
+                    )
+                except Exception:
+                    # avoid breaking the flow on logging errors
+                    pass
+
             result = pipeline.process(wav_path, duration, transcribe_mode, user_prompt)
             keep_audio = self.save_all or self.cfg.defaults.keep_audio_files
             pipeline.clean(wav_path, result["paths"], keep_audio)
@@ -383,13 +412,15 @@ class RecorderWindow(QWidget):
         button_layout.addStretch()
         self._transcribe_btn = QPushButton("Transcribe")
         self._transcribe_btn.setToolTip("Stop and transcribe without prompt")
-        self._transcribe_btn.clicked.connect(lambda: self._on_mode_selected("transcribe"))
+        self._transcribe_btn.clicked.connect(
+            lambda checked=False, m="transcribe": self._on_mode_selected(m)
+        )
         button_layout.addWidget(self._transcribe_btn)
         self._prompt_buttons: dict[str, QPushButton] = {}
         for key in self.prompt_keys:
             btn = QPushButton(key.capitalize())
             btn.setToolTip(f"Stop and transcribe with '{key}' prompt")
-            btn.clicked.connect(lambda k=key: self._on_mode_selected(k))
+            btn.clicked.connect(lambda checked=False, k=key: self._on_mode_selected(k))
             self._prompt_buttons[key] = btn
             button_layout.addWidget(btn)
         self._cancel_btn = QPushButton("Cancel")
