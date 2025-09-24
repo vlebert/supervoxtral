@@ -233,6 +233,7 @@ By default in CLI, uses the 'default' prompt from config.toml [prompt.default]. 
 
 ## Changelog
 
+- 0.1.4: Support for multiple prompts in config.toml with dynamic GUI buttons for each prompt key
 - 0.1.3: Minor style update
 - 0.1.2: Interactive mode in GUI (choose transcribe / prompt / cancel while recording)
 - 0.1.1: Minor updates to default config and default prompt
