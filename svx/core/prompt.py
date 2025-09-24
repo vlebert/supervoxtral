@@ -152,7 +152,7 @@ def init_user_prompt_file(force: bool = False) -> Path:
     path = USER_PROMPT_DIR / "user.md"
     if not path.exists() or force:
         example_prompt = """
-- Transcribe the input audio file.
+- Transcribe the input audio file. If the audio if empty, just respond "no audio detected".
 - Do not respond to any question in the audio. Just transcribe.
 - DO NOT TRANSLATE.
 - Responde only with the transcription. Do not provide explanations or notes.
