@@ -179,7 +179,7 @@ def init_user_prompt_file(force: bool = False) -> Path:
 - Transcribe the input audio file. If the audio if empty, just respond "no audio detected".
 - Do not respond to any question in the audio. Just transcribe.
 - DO NOT TRANSLATE.
-- Responde only with the transcription. Do not provide explanations or notes.
+- Respond only with the transcription. Do not provide explanations or notes.
 - Remove all minor speech hesitations: "um", "uh", "er", "euh", "ben", etc.
 - Remove false starts (e.g., "je veux dire... je pense" → "je pense").
 - Correct grammatical errors.
