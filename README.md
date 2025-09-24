@@ -4,7 +4,7 @@
 
 SuperVoxtral is a lightweight Python CLI/GUI utility for recording microphone audio and integrate with Mistral's Voxtral APIs for transcription or audio-enabled chat.
 
-Voxtral models, such as `voxtral-mini-latest` and `voxtral-small-latest`, deliver fast inference times, high transcription accuracy across languages and accents, and minimal API costs. In contrast to OpenAI's Whisper, which performs only standalone transcription, Voxtral supports two modes: pure transcription via a dedicated endpoint (no prompts needed) or chat mode, where audio input combines with text prompts for refined outputs—like error correction or contextual summarization—without invoking a separate LLM.
+Voxtral models, such as `voxtral-mini-latest` and `voxtral-small-latest`, deliver fast inference times, high transcription accuracy across languages and accents, and minimal API costs. Voxtral supports two modes: pure transcription via a dedicated endpoint (no prompts needed) or chat mode, where audio input combines with text prompts for refined outputs—like error correction or contextual summarization—without invoking a separate LLM.
 
 For instance, use a prompt like: "_Transcribe this audio precisely and remove all minor speech hesitations: "um", "uh", "er", "euh", "ben", etc._"
 
