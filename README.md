@@ -26,6 +26,7 @@ The package is available on PyPI. We recommend using `uv` (a fast Python package
 - For GUI support (includes PySide6):
   ```
   uv tool install "supervoxtral[gui]"
+  # to update: uv tool update "supervoxtral[gui]"
   ```
 
 - For core CLI only functionality:
