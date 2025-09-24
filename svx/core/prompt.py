@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from .config import USER_PROMPT_DIR, Config
+from .config import USER_PROMPT_DIR, Config, PromptEntry
 
 __all__ = [
     "read_text_file",
@@ -68,16 +68,16 @@ def resolve_user_prompt(
     inline: str | None = None,
     file: Path | None = None,
     user_prompt_dir: Path | None = None,
+    key: str | None = None,
 ) -> str:
     """
     Resolve the effective user prompt from multiple sources, by priority:
 
     1) inline text (CLI --user-prompt)
     2) explicit file (CLI --user-prompt-file)
-    3) user config inline text (cfg.prompt.text)
-    4) user config file path (cfg.prompt.file)
-    5) user prompt dir file (user_prompt_dir / 'user.md')
-    6) literal fallback: "What's in this audio?"
+    3) user config prompt for key (cfg.prompt.prompts[key or "default"])
+    4) user prompt dir file (user_prompt_dir / 'user.md')
+    5) literal fallback: "What's in this audio?"
 
     Returns the first non-empty string after stripping.
     """
@@ -94,17 +94,18 @@ def resolve_user_prompt(
             logging.warning("Failed to read user prompt file: %s", p)
             return ""
 
-    def _from_user_cfg() -> str:
+    def _from_user_cfg(key: str) -> str:
         try:
-            cfg_prompt = cfg.prompt
-            cfg_text = cfg_prompt.text
-            if isinstance(cfg_text, str) and cfg_text.strip():
-                return cfg_text.strip()
-            cfg_file = cfg_prompt.file
-            if isinstance(cfg_file, str) and cfg_file.strip():
-                return read_text_file(Path(cfg_file).expanduser()).strip()
+            entry = cfg.prompt.prompts.get(key, PromptEntry())
+            if entry.text and entry.text.strip():
+                return entry.text.strip()
+            if entry.file:
+                file_path = Path(entry.file).expanduser()
+                if not file_path.is_absolute():
+                    file_path = (user_prompt_dir or cfg.user_prompt_dir) / entry.file
+                return read_text_file(file_path).strip()
         except Exception:
-            logging.debug("User config prompt processing failed.", exc_info=True)
+            logging.debug("User config prompt processing failed for key '%s'.", key, exc_info=True)
         return ""
 
     def _from_user_prompt_dir() -> str:
@@ -119,10 +120,11 @@ def resolve_user_prompt(
             )
         return ""
 
+    key = key or "default"
     suppliers = [
         lambda: _strip(inline),
         lambda: _read(file),
-        _from_user_cfg,
+        lambda: _from_user_cfg(key),
         _from_user_prompt_dir,
     ]
 
@@ -150,7 +152,7 @@ def init_user_prompt_file(force: bool = False) -> Path:
     path = USER_PROMPT_DIR / "user.md"
     if not path.exists() or force:
         example_prompt = """
-- Transcribe the input audio file.
+- Transcribe the input audio file. If the audio if empty, just respond "no audio detected".
 - Do not respond to any question in the audio. Just transcribe.
 - DO NOT TRANSLATE.
 - Responde only with the transcription. Do not provide explanations or notes.
@@ -163,3 +165,23 @@ def init_user_prompt_file(force: bool = False) -> Path:
         except Exception as e:
             logging.debug("Could not initialize user prompt file %s: %s", path, e)
     return path
+
+
+def resolve_prompt_entry(entry: PromptEntry, user_prompt_dir: Path) -> str:
+    """
+    Resolve the prompt from a single PromptEntry (text or file).
+
+    - Prioritizes text if present and non-empty.
+    - Falls back to reading the file (expands ~ and resolves relative to user_prompt_dir).
+    - Returns empty string if neither is valid.
+    """
+    if entry.text and entry.text.strip():
+        return entry.text.strip()
+
+    if entry.file:
+        file_path = Path(entry.file).expanduser()
+        if not file_path.is_absolute():
+            file_path = user_prompt_dir / entry.file
+        return read_text_file(file_path).strip()
+
+    return ""

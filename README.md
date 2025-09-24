@@ -84,7 +84,7 @@ To get started quickly with SuperVoxtral:
    ```
 
 3. Launch the GUI: `svx record --gui`
-   This opens the minimal GUI, starts recording immediately; click 'Transcribe' for pure transcription (no prompt) or 'Prompt' for prompted transcription (resolved prompt); --transcribe ignored with warning (results copied to clipboard).
+   This opens the minimal GUI, starts recording immediately; click 'Transcribe' for pure transcription (no prompt) or a button for each configured prompt (e.g., 'Default', 'Mail', 'Translate') for prompted transcription using the selected prompt; --transcribe ignored with warning (results copied to clipboard).
 
 ### macOS Shortcuts Integration
 
@@ -171,13 +171,18 @@ copy = true
 # Log level: "DEBUG" | "INFO" | "WARNING" | "ERROR"
 log_level = "INFO"
 
-[prompt]
+[prompt.default]
 # Default user prompt source:
 # - Option 1: Use a file (recommended)
 file = "~/.config/supervoxtral/prompt/user.md"
 #
 # - Option 2: Inline prompt (less recommended for long text)
 # text = "Please transcribe the audio and provide a concise summary in French."
+
+[prompt.test]
+# Example additional prompt
+# file = "/path/to/another_prompt.md"
+# text = "Summarize the meeting in bullet points."
 ```
 
 **Configuration is centralized via a structured `Config` object loaded from your user configuration file (`config.toml`). CLI arguments override select values (e.g., prompt, log level), but most defaults (provider, model, keep flags) come from `config.toml`. No environment variables are used for API keys or settings.**
@@ -219,14 +224,17 @@ svx record [OPTIONS]
   - Interactive mode: recording starts immediately; click 'Transcribe' (pure transcription, no prompt) or 'Prompt' (with resolved prompt); --transcribe ignored with warning. GUI respects config.toml and CLI flags (e.g., `--gui --save-all`).
 
 **Prompt Resolution Priority** (for non-transcribe mode):
+By default in CLI, uses the 'default' prompt from config.toml [prompt.default]. For overrides:
 1. CLI `--user-prompt` or `--user-prompt-file`
-2. config.toml [prompt] section (text or file)
-3. User prompt file (user.md in config dir)
-4. Fallback: "What's in this audio?"
+2. Specified prompt key (future: via --prompt-key; currently implicit 'default')
+3. config.toml [prompt.default] (text or file)
+4. User prompt file (user.md in config dir)
+5. Fallback: "What's in this audio?"
 
 ## Changelog
 
-- 0.1.3: Minor sytle update
+- 0.1.4: Support for multiple prompts in config.toml with dynamic GUI buttons for each prompt key
+- 0.1.3: Minor style update
 - 0.1.2: Interactive mode in GUI (choose transcribe / prompt / cancel while recording)
 - 0.1.1: Minor updates to default config and default prompt
 
