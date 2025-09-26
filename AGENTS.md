@@ -21,7 +21,6 @@ supervoxtral/
 │   │   └── mistral.py             # Mistral Voxtral implementation (init from Config)
 │   └── ui/                        # GUI (Qt-based MVP)
 │       └── qt_app.py              # RecorderWindow/Worker using Pipeline and Config
-
 ├── recordings/                    # Audio files (WAV/MP3/Opus) (conditional)
 ├── transcripts/                   # API responses (txt/json) (conditional)
 ├── logs/                          # Application logs (conditional)
