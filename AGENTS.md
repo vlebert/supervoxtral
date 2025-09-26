@@ -38,31 +38,19 @@ supervoxtral/
 - **Cleanup**: Temp files auto-deleted (tempfile) if `keep_*=false`; dirs created only if persistence enabled.
 - **End**: Return `{"text": str, "raw": dict, "duration": float, "paths": dict}`; CLI prints result (uses "default" prompt), GUI emits progress/updates via callback (buttons: 'Transcribe' for no prompt; capitalized prompt keys (e.g., 'Default', 'Test') for selected prompt; 'Cancel'; Esc/close cancels).
 
-## Build & test
+## Build
 ```bash
 # Setup
-uv pip install -e .
+uv pip install -e .[gui]
+```
 
+## Test
+```bash
 # Lint & format
-black svx/
 ruff check svx/
 
-# Diagnostics (post-edits)
-# Use `diagnostics` tool or run locally to check errors/warnings in pipeline.py, config.py, etc.
+# Type checker
 basedpyright svx
-
-# Run
-# Initialize user config (generates config.toml with zero-footprint defaults)
-svx config init
-
-# Record (provider/format configured in config.toml; tests zero-footprint)
-svx record --prompt "What's in this file?"
-
-# Test persistence
-svx record --save-all --prompt "Test persistence"
-
-# Test GUI
-svx record --gui
 ```
 
 ## Maintenance
