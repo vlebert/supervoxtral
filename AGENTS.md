@@ -55,7 +55,7 @@ basedpyright svx
 ## Maintenance
 
 - use `uv` to install dependancies if needed
-- update `pyproject.toml` then run uv `pip install -e .`
+- update `pyproject.toml` then run `uv pip install -e .`
 - When adding modules: Propagate Config instance; use RecordingPipeline for recording flows; handle temp files via keep_* flags.
 - Test temp cleanup: Verify no leftovers in default mode (keep_*=false).
 
