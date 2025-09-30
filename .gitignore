@@ -98,3 +98,4 @@ Icon?
 *.swp
 *.swo
 .python-version
+.aider*
