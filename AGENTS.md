@@ -3,39 +3,47 @@
 ## Project overview
 Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). MVP: manual stop, API-based, zero-footprint defaults (temp files, no persistent dirs unless overridden), results in `transcripts/` when persisted.
 
-### Project structure
-```
-supervoxtral/
-├── svx/                           # Python package
-│   ├── __init__.py
-│   ├── cli.py                     # Typer CLI entrypoint (orchestration only, uses Config and Pipeline)
-│   ├── core/                      # Core logic (audio, config, prompts, storage)
-│   │   ├── audio.py               # Recording, ffmpeg detection/conversion
-│   │   ├── config.py              # Structured Config dataclasses, loading, resolution, logging setup
-│   │   ├── pipeline.py            # Centralized RecordingPipeline for CLI/GUI unification
-│   │   ├── prompt.py              # Prompt resolution (supports multiple prompts via Config dict, key-based)
-│   │   └── storage.py             # Save transcripts and raw JSON (conditional on keep_transcript_files)
-│   ├── providers/                 # API integrations
-│   │   ├── __init__.py            # Provider registry (get_provider with Config support)
-│   │   ├── base.py                # Provider protocol + shared types
-│   │   └── mistral.py             # Mistral Voxtral implementation (init from Config)
-│   └── ui/                        # GUI (Qt-based MVP)
-│       └── qt_app.py              # RecorderWindow/Worker using Pipeline and Config
-├── recordings/                    # Audio files (WAV/MP3/Opus) (conditional)
-├── transcripts/                   # API responses (txt/json) (conditional)
-├── logs/                          # Application logs (conditional)
-├── pyproject.toml                 # Project metadata & deps
-├── .env.example                   # Template for secrets (unused; keys in config.toml)
-└── README.md                      # User guide
-```
+### Core Design Principles
 
-## Typical Execution Flow
+1. **Centralized Pipeline**: All recording/transcription flows through `RecordingPipeline` (svx/core/pipeline.py) for consistency between CLI and GUI
+2. **Config-driven**: Structured `Config` dataclass (svx/core/config.py) loaded from user's config.toml; CLI args override specific values
+3. **Zero-footprint defaults**: Temp files auto-deleted unless `keep_*` flags or `--save-all` enabled; no project directories created by default
+4. **Provider abstraction**: `Provider` protocol (svx/providers/base.py) for pluggable transcription services
 
-- **Entry**: `svx/cli.py` Typer `record` command parses args (e.g., --prompt, --save-all, --gui, --transcribe).
-- **Config & Prompt**: Load `Config` via `Config.load()` (`core/config.py`); supports dict of prompts in config.toml (e.g., [prompt.default], [prompt.other]); if transcribe_mode, skip prompt resolution; else resolve prompt with `cfg.resolve_prompt(key="default" for CLI, or selected key for GUI)` (`core/prompt.py`).
-- **Pipeline**: Run `RecordingPipeline` (`core/pipeline.py`): record WAV/stop (`core/audio.py`), optional conversion (ffmpeg), get provider/init (`providers/__init__.py`, e.g., `mistral.py` from `cfg`); if transcribe_mode (CLI only): no prompt, model override to voxtral-mini-latest (with warning if changed), pass transcribe_mode to provider.transcribe; for GUI: --transcribe ignored (warning), recording starts immediately, uses modular record()/process()/clean() with dynamic mode (Transcribe: no prompt, model override; Prompt key: resolved prompt for selected key); transcribe, conditional save (`core/storage.py` based on `keep_*`/`save_all`), clipboard copy, logging setup.
-- **Cleanup**: Temp files auto-deleted (tempfile) if `keep_*=false`; dirs created only if persistence enabled.
-- **End**: Return `{"text": str, "raw": dict, "duration": float, "paths": dict}`; CLI prints result (uses "default" prompt), GUI emits progress/updates via callback (buttons: 'Transcribe' for no prompt; capitalized prompt keys (e.g., 'Default', 'Test') for selected prompt; 'Cancel'; Esc/close cancels).
+### Module Structure
+
+- **svx/cli.py**: Typer CLI entrypoint; orchestration only, delegates to Config and Pipeline
+- **svx/core/**:
+  - `config.py`: Config dataclasses, TOML loading, prompt resolution (supports multiple prompts via [prompt.key] sections), logging setup
+  - `pipeline.py`: RecordingPipeline class - records, converts (ffmpeg), transcribes, saves conditionally, copies to clipboard
+  - `audio.py`: WAV recording (sounddevice), ffmpeg detection/conversion to MP3/Opus
+  - `prompt.py`: Multi-prompt resolution from config dict (key-based: "default", "test", etc.)
+  - `storage.py`: Save transcripts/JSON conditionally based on keep_transcript_files
+  - `clipboard.py`: Cross-platform clipboard copy
+- **svx/providers/**:
+  - `base.py`: Provider protocol, TranscriptionResult TypedDict, ProviderError
+  - `mistral.py`: Mistral Voxtral implementation (chat with audio + dedicated transcription endpoint)
+  - `openai.py`: OpenAI Whisper implementation
+  - `__init__.py`: Provider registry (get_provider)
+- **svx/ui/**:
+  - `qt_app.py`: PySide6 GUI (RecorderWindow/Worker) using Pipeline; dynamic buttons per prompt key
+
+### Execution Flow
+
+1. **Entry**: CLI parses args (--prompt, --save-all, --gui, --transcribe)
+2. **Config Load**: Config.load() reads config.toml (supports [prompt.default], [prompt.other], etc.); API keys in [providers.mistral] or [providers.openai]
+3. **Prompt Resolution**:
+   - CLI: Uses "default" prompt key unless --prompt/--prompt-file overrides
+   - GUI: Dynamic buttons for each [prompt.key]; "Transcribe" button bypasses prompt
+   - Priority: CLI arg > config [prompt.key] > user prompt file > fallback
+4. **Pipeline Execution** (RecordingPipeline):
+   - record(): WAV recording via sounddevice, temp file if keep_audio_files=false
+   - process(): Optional ffmpeg conversion, provider transcription (transcribe_mode for pure transcription with model override), conditional save_transcript, clipboard copy
+   - clean(): Temp file cleanup
+5. **Transcribe Mode** (CLI only):
+   - --transcribe flag: No prompt, model override to voxtral-mini-latest (with warning), uses provider's dedicated transcription endpoint
+   - GUI: --transcribe ignored (warning); use "Transcribe" button instead
+6. **Output**: CLI prints result; GUI emits via callback; temp files auto-deleted unless keep_* enabled
 
 ## Build
 ```bash
@@ -43,13 +51,30 @@ supervoxtral/
 uv pip install -e .[gui]
 ```
 
-## Test
+## Linting and Type Checking
 ```bash
 # Lint & format
 ruff check svx/
 
 # Type checker
 basedpyright svx
+```
+
+## Running the Application
+```bash
+# CLI: Record with prompt
+svx record --prompt "Transcribe this audio"
+
+# CLI: Pure transcription (no prompt)
+svx record --transcribe
+
+# GUI: Launch interactive recorder
+svx record --gui
+
+# Config management
+svx config init    # Create default config.toml
+svx config open    # Open config directory
+svx config show    # Display current config
 ```
 
 ## Maintenance
@@ -65,7 +90,6 @@ basedpyright svx
 - **Formatting**: Black (100 line length), ruff for linting (E, F, I, UP rules)
 - **Types**: Full type hints required, use `TypedDict` for data structures, `Protocol` for interfaces (e.g., Provider protocol, Config dataclasses with type hints)
 - **Naming**: snake_case for functions/variables, PascalCase for classes, UPPER_CASE for constants
-- **Error handling**: Custom exceptions inherit from standard types, use `ProviderError` for API failures
 - **Docstrings**: Google-style with clear purpose/dependencies/`__all__` exports
 
 ## Security
