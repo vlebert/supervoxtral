@@ -119,7 +119,7 @@ class WaveformWidget(QWidget):
     waveform to indicate recording activity. It is lightweight and self-contained.
     """
 
-    def __init__(self, parent=None, height: int = 64) -> None:
+    def __init__(self, parent: QWidget | None = None, height: int = 64) -> None:
         super().__init__(parent)
         self.setMinimumHeight(height)
         self.setMaximumHeight(height)

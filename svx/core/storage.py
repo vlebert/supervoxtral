@@ -86,7 +86,7 @@ def save_transcript(
     base_name: str,
     provider: str,
     text: str,
-    raw: dict | None = None,
+    raw: dict[str, Any] | None = None,
 ) -> tuple[Path, Path | None]:
     """
     Save a transcript text and, optionally, the raw JSON response.

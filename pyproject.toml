@@ -47,6 +47,7 @@ packages = ["svx"]
 
 [tool.basedpyright]
 typeCheckingMode = "standard"  # "basic" | "standard" | "strict" (défaut: "standard")
+reportUnknownParameterType = true
 # reportUnknownArgumentType = false
 # reportUnknownVariableType = false
 # reportUnusedCallResult = false

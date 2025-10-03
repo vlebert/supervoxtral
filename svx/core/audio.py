@@ -22,6 +22,7 @@ from pathlib import Path
 from threading import Event, Thread
 from typing import Any
 
+import numpy as np
 import sounddevice as sd
 import soundfile as sf
 
@@ -149,7 +150,12 @@ def record_wav(
     writer_stop = Event()
     start_time = time.time()
 
-    def audio_callback(indata, frames, time_info, status):
+    def audio_callback(
+        indata: np.ndarray[Any, np.dtype[np.int16]],
+        frames: int,
+        time_info: sd.CallbackFlags,
+        status: sd.CallbackFlags,
+    ) -> None:
         if status:
             logging.warning("SoundDevice status: %s", status)
         q.put(indata.copy())
