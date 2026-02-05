@@ -92,6 +92,7 @@ class MistralProvider(Provider):
         self.api_key = mistral_cfg.api_key
         if not self.api_key:
             raise ProviderError("Missing providers.mistral.api_key in user config (config.toml).")
+        self.context_bias = cfg.defaults.context_bias
 
     def transcribe(
         self,
@@ -127,17 +128,20 @@ class MistralProvider(Provider):
 
         model_name = model or "voxtral-mini-latest"
         logging.info(
-            "Calling Mistral transcription endpoint model=%s with audio=%s (%s), language=%s",
+            "Calling Mistral transcription endpoint model=%s with audio=%s (%s),"
+            " language=%s, context_bias=%d items",
             model_name,
             Path(audio_path).name,
             Path(audio_path).suffix,
             language or "auto",
+            len(self.context_bias),
         )
         with open(audio_path, "rb") as f:
             resp = client.audio.transcriptions.complete(
                 model=model_name,
                 file={"content": f, "file_name": Path(audio_path).name},
                 language=language,
+                context_bias=self.context_bias if self.context_bias else None,
             )
         text = resp.text
         raw = _normalize_raw_response(resp)

@@ -882,7 +882,7 @@ wheels = [
 
 [[package]]
 name = "supervoxtral"
-version = "0.1.5"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "mistralai" },

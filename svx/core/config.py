@@ -227,6 +227,10 @@ def init_user_config(force: bool = False, prompt_file: Path | None = None) -> Pa
         'chat_model = "mistral-small-latest"\n\n'
         "# Language hint (may help the provider)\n"
         'language = "fr"\n\n'
+        "# Context bias: up to 100 words/phrases to help recognize specific vocabulary\n"
+        "# (proper nouns, technical terms, brand names, etc.)\n"
+        '# context_bias = ["SuperVoxtral", "Mistral AI", "Voxtral"]\n'
+        "context_bias = []\n\n"
         "# Audio recording parameters\n"
         "rate = 16000\n"
         "channels = 1\n"
@@ -276,6 +280,7 @@ class DefaultsConfig:
     model: str = "voxtral-mini-latest"
     chat_model: str = "mistral-small-latest"
     language: str | None = None
+    context_bias: list[str] = field(default_factory=list)
     rate: int = 16000
     channels: int = 1
     device: str | None = None
@@ -321,6 +326,9 @@ class Config:
             "model": str(user_defaults_raw.get("model", "voxtral-mini-latest")),
             "chat_model": str(user_defaults_raw.get("chat_model", "mistral-small-latest")),
             "language": user_defaults_raw.get("language"),
+            "context_bias": list(user_defaults_raw.get("context_bias", []))
+            if isinstance(user_defaults_raw.get("context_bias"), list)
+            else [],
             "rate": int(user_defaults_raw.get("rate", 16000)),
             "channels": int(user_defaults_raw.get("channels", 1)),
             "device": user_defaults_raw.get("device"),
@@ -340,6 +348,9 @@ class Config:
         format_ = defaults_data["format"]
         if format_ not in {"wav", "mp3", "opus"}:
             raise ValueError("format must be one of wav|mp3|opus")
+        context_bias = defaults_data["context_bias"]
+        if len(context_bias) > 100:
+            raise ValueError("context_bias cannot contain more than 100 items (Mistral API limit)")
         defaults = DefaultsConfig(**defaults_data)
         # Conditional output directories
         if defaults.keep_audio_files:

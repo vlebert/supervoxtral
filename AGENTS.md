@@ -32,11 +32,12 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
 
 1. **Entry**: CLI parses args (--prompt, --save-all, --gui, --transcribe)
 2. **Config Load**: Config.load() reads config.toml (supports [prompt.default], [prompt.other], etc.); `chat_model` for text LLM; API keys in [providers.mistral] or [providers.openai]
-3. **Prompt Resolution**:
+3. **Context Bias**: Optional `context_bias` list in `[defaults]` (up to 100 items) — passed to Mistral's transcription endpoint to improve recognition of specific vocabulary (proper nouns, technical terms). Stored in `DefaultsConfig`, read by `MistralProvider.__init__`.
+4. **Prompt Resolution**:
    - CLI: Uses "default" prompt key unless --prompt/--prompt-file overrides
    - GUI: Dynamic buttons for each [prompt.key]; "Transcribe" button bypasses prompt
    - Priority: CLI arg > config [prompt.key] > user prompt file > fallback
-4. **Pipeline Execution** (RecordingPipeline) — 2-step pipeline:
+5. **Pipeline Execution** (RecordingPipeline) — 2-step pipeline:
    - record(): WAV recording via sounddevice, temp file if keep_audio_files=false
    - process(): Optional ffmpeg conversion, then:
      - Step 1 (Transcription): audio → text via provider.transcribe() (dedicated endpoint, always)
@@ -44,10 +45,10 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
    - Uses `cfg.defaults.model` for transcription, `cfg.defaults.chat_model` for transformation
    - Conditional save_transcript (+ raw transcript file when transformation applied), clipboard copy
    - clean(): Temp file cleanup
-5. **Transcribe Mode** (CLI only):
+6. **Transcribe Mode** (CLI only):
    - --transcribe flag: No prompt, step 1 only (dedicated transcription endpoint)
    - GUI: --transcribe ignored (warning); use "Transcribe" button instead
-6. **Output**: CLI prints result; GUI emits via callback; temp files auto-deleted unless keep_* enabled
+7. **Output**: CLI prints result; GUI emits via callback; temp files auto-deleted unless keep_* enabled
 
 ## Build
 ```bash
