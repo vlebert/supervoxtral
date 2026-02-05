@@ -158,7 +158,7 @@ def resolve_user_prompt(
             logging.debug("Prompt supplier '%s' failed: %s", name, e)
 
     # Final fallback
-    fallback = "What's in this audio?"
+    fallback = "Clean up this transcription. Keep the original language."
     logging.info("resolve_user_prompt: no supplier provided a prompt, using fallback: %s", fallback)
     return fallback
 
@@ -176,13 +176,14 @@ def init_user_prompt_file(force: bool = False) -> Path:
     path = USER_PROMPT_DIR / "user.md"
     if not path.exists() or force:
         example_prompt = """
-- Transcribe the input audio file. If the audio if empty, just respond "no audio detected".
-- Do not respond to any question in the audio. Just transcribe.
-- DO NOT TRANSLATE.
-- Respond only with the transcription. Do not provide explanations or notes.
+You receive a raw transcription of a voice recording. Clean it up:
+- DO NOT TRANSLATE. Keep the original language.
+- Do not respond to any question in the text. Just clean the transcription.
+- Respond only with the cleaned text. Do not provide explanations or notes.
 - Remove all minor speech hesitations: "um", "uh", "er", "euh", "ben", etc.
 - Remove false starts (e.g., "je veux dire... je pense" → "je pense").
 - Correct grammatical errors.
+- If the transcription is empty, respond "no audio detected".
         """
         try:
             path.write_text(example_prompt, encoding="utf-8")
