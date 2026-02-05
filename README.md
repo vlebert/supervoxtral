@@ -158,6 +158,11 @@ chat_model = "mistral-small-latest"
 # Language hint (may help the provider)
 language = "fr"
 
+# Context bias: up to 100 words/phrases to help recognize specific vocabulary
+# (proper nouns, technical terms, brand names, etc.)
+# context_bias = ["SuperVoxtral", "Mistral AI", "Voxtral"]
+context_bias = []
+
 # Audio recording parameters
 rate = 16000
 channels = 1
@@ -242,6 +247,7 @@ By default in CLI, uses the 'default' prompt from config.toml [prompt.default]. 
 
 ## Changelog
 
+- 0.3.0: Add `context_bias` support for Mistral Voxtral transcription — a list of up to 100 words/phrases to help the model recognize specific vocabulary (proper nouns, technical terms, brand names). Configurable in `config.toml` under `[defaults]`.
 - 0.2.0: 2-step pipeline (transcription → transformation). Replaces chat-with-audio by dedicated transcription endpoint + text-based LLM. New `chat_model` config option. Raw transcript saved separately when transformation is applied.
 - 0.1.5: Fix bug on prompt selecting
 - 0.1.4: Support for multiple prompts in config.toml with dynamic GUI buttons for each prompt key
