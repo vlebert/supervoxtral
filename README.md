@@ -242,6 +242,7 @@ By default in CLI, uses the 'default' prompt from config.toml [prompt.default]. 
 
 ## Changelog
 
+- 0.2.0: 2-step pipeline (transcription → transformation). Replaces chat-with-audio by dedicated transcription endpoint + text-based LLM. New `chat_model` config option. Raw transcript saved separately when transformation is applied.
 - 0.1.5: Fix bug on prompt selecting
 - 0.1.4: Support for multiple prompts in config.toml with dynamic GUI buttons for each prompt key
 - 0.1.3: Minor style update
