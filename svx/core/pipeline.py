@@ -12,18 +12,23 @@ import svx.core.config as config
 from svx.core.audio import convert_audio, record_wav, timestamp
 from svx.core.clipboard import copy_to_clipboard
 from svx.core.config import Config
-from svx.core.storage import save_transcript
+from svx.core.storage import save_text_file, save_transcript
 from svx.providers import get_provider
 
 
 class RecordingPipeline:
     """
-    Centralized pipeline for recording audio, transcribing via provider, saving outputs,
-    and copying to clipboard. Handles temporary files when not keeping audio.
+    Centralized pipeline for recording audio, transcribing via provider, optionally
+    transforming with a text LLM, saving outputs, and copying to clipboard.
 
+    Pipeline steps:
+    1. Transcription: audio -> text via dedicated transcription endpoint (always)
+    2. Transformation: text + prompt -> text via text-based LLM (when a prompt is provided)
+
+    Handles temporary files when not keeping audio.
     Supports runtime overrides like save_all for keeping all files and adding log handlers.
     Optional progress_callback for status updates (e.g., for GUI).
-    Supports transcribe_mode for pure transcription without prompt using dedicated endpoint.
+    Supports transcribe_mode for pure transcription without prompt (step 1 only).
     """
 
     def __init__(
@@ -136,31 +141,26 @@ class RecordingPipeline:
         self, wav_path: Path, duration: float, transcribe_mode: bool, user_prompt: str | None = None
     ) -> dict[str, Any]:
         """
-        Process recorded audio: convert if needed, transcribe, save, copy.
+        Process recorded audio: convert if needed, transcribe, optionally transform, save, copy.
+
+        Pipeline:
+        1. Transcription: audio -> text via dedicated endpoint (always)
+        2. Transformation: text + prompt -> text via LLM (when prompt is provided)
 
         Args:
             wav_path: Path to the recorded WAV file.
             duration: Recording duration in seconds.
-            transcribe_mode: Whether to use pure transcription mode.
-            user_prompt: User prompt to use (None for transcribe_mode).
+            transcribe_mode: Whether to use pure transcription mode (step 1 only).
+            user_prompt: User prompt to use for transformation (None for transcribe_mode).
 
         Returns:
-            Dict with 'text' (str), 'raw' (dict), 'duration' (float),
-            'paths' (dict of Path or None).
+            Dict with 'text' (str), 'raw_transcript' (str), 'raw' (dict),
+            'duration' (float), 'paths' (dict of Path or None).
         """
         # Resolve parameters
         provider = self.cfg.defaults.provider
         audio_format = self.cfg.defaults.format
         model = self.cfg.defaults.model
-        original_model = model
-        if transcribe_mode:
-            model = "voxtral-mini-latest"
-            if original_model != "voxtral-mini-latest":
-                logging.warning(
-                    "Transcribe mode: model override from '%s' to 'voxtral-mini-latest'\n"
-                    "(optimized for transcription).",
-                    original_model,
-                )
         language = self.cfg.defaults.language
         if wav_path.stem.endswith(".wav"):
             base = wav_path.stem.replace(".wav", "")
@@ -176,9 +176,9 @@ class RecordingPipeline:
                 final_user_prompt = self.cfg.resolve_prompt(self.user_prompt, self.user_prompt_file)
             else:
                 final_user_prompt = user_prompt
-            self._status("Transcribe mode not activated: using prompt.")
+            self._status("Prompt mode: transcription then transformation.")
         else:
-            self._status("Transcribe mode activated: no prompt used.")
+            self._status("Transcribe mode: transcription only, no prompt.")
 
         logging.debug(f"Applied prompt: {final_user_prompt or 'None (transcribe mode)'}")
 
@@ -194,18 +194,22 @@ class RecordingPipeline:
             paths["converted"] = to_send_path
             _converted = True
 
-        # Transcribe
+        # Step 1: Transcription (always)
         self._status("Transcribing...")
         prov = get_provider(provider, cfg=self.cfg)
-        result = prov.transcribe(
-            to_send_path,
-            user_prompt=final_user_prompt,
-            model=model,
-            language=language,
-            transcribe_mode=transcribe_mode,
-        )
-        text = result["text"]
-        raw = result["raw"]
+        result = prov.transcribe(to_send_path, model=model, language=language)
+        raw_transcript = result["text"]
+
+        # Step 2: Transformation (if prompt)
+        if not transcribe_mode and final_user_prompt:
+            self._status("Applying prompt...")
+            chat_model = self.cfg.defaults.chat_model
+            chat_result = prov.chat(raw_transcript, final_user_prompt, model=chat_model)
+            text = chat_result["text"]
+            raw = {"transcription": result["raw"], "transformation": chat_result["raw"]}
+        else:
+            text = raw_transcript
+            raw = result["raw"]
 
         # Save if keeping transcripts
         if keep_transcript:
@@ -215,6 +219,12 @@ class RecordingPipeline:
             )
             paths["txt"] = txt_path
             paths["json"] = json_path
+
+            # Save raw transcript separately when transformation was applied
+            if not transcribe_mode and final_user_prompt:
+                raw_txt_path = self.cfg.transcripts_dir / f"{base}_{provider}_raw.txt"
+                save_text_file(raw_txt_path, raw_transcript)
+                paths["raw_txt"] = raw_txt_path
         else:
             paths["txt"] = None
             paths["json"] = None
@@ -230,6 +240,7 @@ class RecordingPipeline:
         logging.info("Processing finished (%.2fs)", duration)
         return {
             "text": text,
+            "raw_transcript": raw_transcript,
             "raw": raw,
             "duration": duration,
             "paths": paths,
@@ -263,8 +274,8 @@ class RecordingPipeline:
             stop_event: Optional event to signal recording stop (e.g., for GUI).
 
         Returns:
-            Dict with 'text' (str), 'raw' (dict), 'duration' (float),
-            'paths' (dict of Path or None).
+            Dict with 'text' (str), 'raw_transcript' (str), 'raw' (dict),
+            'duration' (float), 'paths' (dict of Path or None).
 
         Raises:
             Exception: On recording, conversion, or transcription errors.

@@ -22,7 +22,7 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
   - `clipboard.py`: Cross-platform clipboard copy
 - **svx/providers/**:
   - `base.py`: Provider protocol, TranscriptionResult TypedDict, ProviderError
-  - `mistral.py`: Mistral Voxtral implementation (chat with audio + dedicated transcription endpoint)
+  - `mistral.py`: Mistral Voxtral implementation (dedicated transcription endpoint + text-based LLM chat)
   - `openai.py`: OpenAI Whisper implementation
   - `__init__.py`: Provider registry (get_provider)
 - **svx/ui/**:
@@ -31,33 +31,37 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
 ### Execution Flow
 
 1. **Entry**: CLI parses args (--prompt, --save-all, --gui, --transcribe)
-2. **Config Load**: Config.load() reads config.toml (supports [prompt.default], [prompt.other], etc.); API keys in [providers.mistral] or [providers.openai]
+2. **Config Load**: Config.load() reads config.toml (supports [prompt.default], [prompt.other], etc.); `chat_model` for text LLM; API keys in [providers.mistral] or [providers.openai]
 3. **Prompt Resolution**:
    - CLI: Uses "default" prompt key unless --prompt/--prompt-file overrides
    - GUI: Dynamic buttons for each [prompt.key]; "Transcribe" button bypasses prompt
    - Priority: CLI arg > config [prompt.key] > user prompt file > fallback
-4. **Pipeline Execution** (RecordingPipeline):
+4. **Pipeline Execution** (RecordingPipeline) — 2-step pipeline:
    - record(): WAV recording via sounddevice, temp file if keep_audio_files=false
-   - process(): Optional ffmpeg conversion, provider transcription (transcribe_mode for pure transcription with model override), conditional save_transcript, clipboard copy
+   - process(): Optional ffmpeg conversion, then:
+     - Step 1 (Transcription): audio → text via provider.transcribe() (dedicated endpoint, always)
+     - Step 2 (Transformation): text + prompt → text via provider.chat() (text LLM, only when prompt provided)
+   - Uses `cfg.defaults.model` for transcription, `cfg.defaults.chat_model` for transformation
+   - Conditional save_transcript (+ raw transcript file when transformation applied), clipboard copy
    - clean(): Temp file cleanup
 5. **Transcribe Mode** (CLI only):
-   - --transcribe flag: No prompt, model override to voxtral-mini-latest (with warning), uses provider's dedicated transcription endpoint
+   - --transcribe flag: No prompt, step 1 only (dedicated transcription endpoint)
    - GUI: --transcribe ignored (warning); use "Transcribe" button instead
 6. **Output**: CLI prints result; GUI emits via callback; temp files auto-deleted unless keep_* enabled
 
 ## Build
 ```bash
-# Setup
-uv pip install -e .[gui]
+# Setup (creates .venv, editable install, lockfile-based)
+uv sync --extra dev --extra gui
 ```
 
 ## Linting and Type Checking
 ```bash
 # Lint & format
-ruff check svx/
+uv run ruff check svx/
 
 # Type checker
-basedpyright svx
+uv run basedpyright svx
 ```
 
 ## Running the Application
@@ -79,8 +83,8 @@ svx config show    # Display current config
 
 ## Maintenance
 
-- use `uv` to install dependancies if needed
-- update `pyproject.toml` then run `uv pip install -e .`
+- use `uv sync --extra dev --extra gui` to install/update dependencies
+- after updating `pyproject.toml`, run `uv sync --extra dev --extra gui` to refresh the environment
 - When adding modules: Propagate Config instance; use RecordingPipeline for recording flows; handle temp files via keep_* flags.
 - Test temp cleanup: Verify no leftovers in default mode (keep_*=false).
 
