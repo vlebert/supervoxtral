@@ -162,10 +162,14 @@ def record(
     ),
 ):
     """
-    Record audio from the microphone and send it to the selected provider.
+    Record audio from the microphone and process it via a 2-step pipeline.
+
+    Pipeline:
+    1. Transcription: audio -> text via dedicated transcription endpoint (always).
+    2. Transformation: text + prompt -> text via text-based LLM (when a prompt is provided).
 
     This CLI accepts only a small set of runtime flags. Most defaults (provider, format,
-    model, language, sample rate, channels, device,
+    model, chat_model, language, sample rate, channels, device,
     file retention, copy-to-clipboard)
     must be configured in the user's `config.toml` under [defaults].
 
@@ -178,11 +182,12 @@ def record(
     Flow:
     - Records WAV until you press Enter (CLI mode).
     - Optionally converts to MP3/Opus depending on config.
-    - Sends the file per provider rules.
+    - Transcribes via dedicated endpoint (step 1).
+    - If a prompt is provided, transforms the transcript via LLM (step 2).
     - Prints and saves the result.
 
     Note: In --transcribe mode, prompts (--user-prompt or --user-prompt-file) are ignored,
-    as it uses a dedicated transcription endpoint without prompting.
+    and only step 1 (transcription) is performed.
     """
     cfg = Config.load(log_level=log_level)
 

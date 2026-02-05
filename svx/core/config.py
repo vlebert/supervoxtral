@@ -220,8 +220,11 @@ def init_user_config(force: bool = False, prompt_file: Path | None = None) -> Pa
         '# File format sent to the provider: "wav" | "mp3" | "opus"\n'
         '# Recording is always WAV; conversion is applied if "mp3" or "opus"\n'
         'format = "opus"\n\n'
-        "# Model to use on the provider side (example for Mistral Voxtral)\n"
+        "# Model for audio transcription (dedicated endpoint)\n"
         'model = "voxtral-mini-latest"\n\n'
+        "# Model for text transformation via LLM\n"
+        "# (applied after transcription when a prompt is used)\n"
+        'chat_model = "mistral-small-latest"\n\n'
         "# Language hint (may help the provider)\n"
         'language = "fr"\n\n'
         "# Audio recording parameters\n"
@@ -271,6 +274,7 @@ class DefaultsConfig:
     provider: str = "mistral"
     format: str = "opus"
     model: str = "voxtral-mini-latest"
+    chat_model: str = "mistral-small-latest"
     language: str | None = None
     rate: int = 16000
     channels: int = 1
@@ -315,6 +319,7 @@ class Config:
             "provider": str(user_defaults_raw.get("provider", "mistral")),
             "format": str(user_defaults_raw.get("format", "opus")),
             "model": str(user_defaults_raw.get("model", "voxtral-mini-latest")),
+            "chat_model": str(user_defaults_raw.get("chat_model", "mistral-small-latest")),
             "language": user_defaults_raw.get("language"),
             "rate": int(user_defaults_raw.get("rate", 16000)),
             "channels": int(user_defaults_raw.get("channels", 1)),

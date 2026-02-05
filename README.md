@@ -2,9 +2,9 @@
 
 ![Supervoxtral](supervoxtral.gif)
 
-SuperVoxtral is a lightweight Python CLI/GUI utility for recording microphone audio and integrate with Mistral's Voxtral APIs for transcription or audio-enabled chat.
+SuperVoxtral is a lightweight Python CLI/GUI utility for recording microphone audio and processing it via a 2-step pipeline using Mistral's APIs.
 
-Voxtral models, such as `voxtral-mini-latest` and `voxtral-small-latest`, deliver fast inference times, high transcription accuracy across languages and accents, and minimal API costs. Voxtral supports two modes: pure transcription via a dedicated endpoint (no prompts needed) or chat mode, where audio input combines with text prompts for refined outputs—like error correction or contextual summarization—without invoking a separate LLM.
+The pipeline works in two stages: (1) **Transcription** — audio is converted to text using Voxtral's dedicated transcription endpoint (`voxtral-mini-latest`), which delivers fast inference, high accuracy across languages, and minimal API costs; (2) **Transformation** — the raw transcript is refined by a text-based LLM (e.g., `mistral-small-latest`) using a configurable prompt for tasks like error correction, summarization, or reformatting. In pure transcription mode (`--transcribe`), only step 1 is performed.
 
 For instance, use a prompt like: "_Transcribe this audio precisely and remove all minor speech hesitations: "um", "uh", "er", "euh", "ben", etc._"
 
@@ -65,10 +65,15 @@ This installs the `svx` command within the virtual environment. Make sure to act
 
 **For development** (local editing):
 1. Clone the repo and navigate to the project root.
-2. Create/activate a virtual environment:
-   - macOS/Linux: `python -m venv .venv && source .venv/bin/activate`
-   - Windows: `python -m venv .venv && .\.venv\Scripts\Activate.ps1`
-3. Install in editable mode: `pip install -e .` (or `pip install -e ".[dev]"` for dev tools).
+2. Install dependencies (creates `.venv` automatically, editable mode, lockfile-based):
+   ```
+   uv sync --extra dev --extra gui
+   ```
+3. Run linting and type checking:
+   ```
+   uv run ruff check svx/
+   uv run basedpyright svx
+   ```
 
 ## Quick Start
 
@@ -144,8 +149,11 @@ provider = "mistral"
 # Recording is always WAV; conversion is applied if "mp3" or "opus"
 format = "opus"
 
-# Model to use on the provider side (example for Mistral Voxtral)
+# Model for audio transcription (dedicated endpoint)
 model = "voxtral-mini-latest"
+
+# Model for text transformation via LLM (applied after transcription when a prompt is used)
+chat_model = "mistral-small-latest"
 
 # Language hint (may help the provider)
 language = "fr"
