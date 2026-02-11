@@ -19,7 +19,7 @@ from svx.core.config import Config
 from svx.core.formatting import format_diarized_transcript
 from svx.core.storage import save_text_file, save_transcript
 from svx.providers import get_provider
-from svx.providers.base import TranscriptionResult, TranscriptionSegment
+from svx.providers.base import Provider, TranscriptionResult, TranscriptionSegment
 
 
 class RecordingPipeline:
@@ -103,6 +103,10 @@ class RecordingPipeline:
         if loopback_device:
             from svx.core.meeting_audio import find_loopback_device, record_dual_wav
 
+            if channels == 1:
+                logging.warning(
+                    "Dual recording always produces stereo (2ch); channels=1 config ignored"
+                )
             self._status("Recording (dual: mic + loopback)...")
             loop_idx = find_loopback_device(loopback_device)
             if loop_idx is None:
@@ -177,10 +181,17 @@ class RecordingPipeline:
             self._ensure_output_dirs()
 
     def _transcribe_single(
-        self, audio_path: Path, provider_name: str, model: str, language: str | None, diarize: bool
+        self,
+        audio_path: Path,
+        provider_name: str,
+        model: str,
+        language: str | None,
+        diarize: bool,
+        prov: Provider | None = None,
     ) -> TranscriptionResult:
-        """Transcribe a single audio file."""
-        prov = get_provider(provider_name, cfg=self.cfg)
+        """Transcribe a single audio file. Reuses `prov` if given."""
+        if prov is None:
+            prov = get_provider(provider_name, cfg=self.cfg)
         return prov.transcribe(
             audio_path,
             model=model,
@@ -207,6 +218,8 @@ class RecordingPipeline:
         chunks = split_wav(audio_path, chunk_duration=chunk_duration, overlap=chunk_overlap)
         self._chunk_dir = chunks[0].path.parent if chunks and chunks[0].path != audio_path else None
 
+        prov = get_provider(provider_name, cfg=self.cfg)
+
         all_segments: list[list[TranscriptionSegment]] = []
         all_texts: list[str] = []
         all_raws: list[dict[str, Any]] = []
@@ -216,7 +229,9 @@ class RecordingPipeline:
                 f"Transcribing chunk {chunk.index + 1}/{len(chunks)} "
                 f"({chunk.start_seconds:.0f}s - {chunk.end_seconds:.0f}s)..."
             )
-            result = self._transcribe_single(chunk.path, provider_name, model, language, diarize)
+            result = self._transcribe_single(
+                chunk.path, provider_name, model, language, diarize, prov=prov
+            )
             all_texts.append(result["text"])
             all_raws.append(result["raw"])
             if "segments" in result:
@@ -294,11 +309,6 @@ class RecordingPipeline:
 
         paths: dict[str, Path | None] = {"wav": wav_path}
 
-        # Auto-activate save_all for long recordings
-        self._activate_save_all_for_long_recording(duration)
-        # Refresh keep_transcript after potential auto-activation
-        keep_transcript = self.save_all or self.cfg.defaults.keep_transcript_files
-
         # Convert if needed
         to_send_path = wav_path
         if audio_format in {"mp3", "opus"}:
@@ -307,8 +317,13 @@ class RecordingPipeline:
             logging.info("Converted %s -> %s", wav_path, to_send_path)
             paths["converted"] = to_send_path
 
-        # Get actual audio duration from file for chunking decision
-        audio_duration = self._get_audio_duration(to_send_path)
+        # Get actual audio duration from file (fall back to wall-clock duration)
+        audio_duration = self._get_audio_duration(to_send_path, fallback=duration)
+
+        # Auto-activate save_all for long recordings (uses same duration as chunking)
+        self._activate_save_all_for_long_recording(audio_duration)
+        # Refresh keep_transcript after potential auto-activation
+        keep_transcript = self.save_all or self.cfg.defaults.keep_transcript_files
 
         # Step 1: Transcription (with optional chunking and diarization)
         if audio_duration > chunk_duration:
@@ -379,14 +394,18 @@ class RecordingPipeline:
             "paths": paths,
         }
 
-    def _get_audio_duration(self, audio_path: Path) -> float:
-        """Get audio duration in seconds from file metadata."""
+    def _get_audio_duration(self, audio_path: Path, fallback: float = 0.0) -> float:
+        """Get audio duration in seconds from file metadata, with fallback."""
         try:
             info = sf.info(str(audio_path))
             return info.frames / info.samplerate
         except Exception:
-            logging.warning("Could not read audio duration from %s, assuming short", audio_path)
-            return 0.0
+            logging.warning(
+                "Could not read audio duration from %s, using fallback %.1fs",
+                audio_path,
+                fallback,
+            )
+            return fallback
 
     def clean(
         self, wav_path: Path, paths: dict[str, Path | None], keep_audio: bool

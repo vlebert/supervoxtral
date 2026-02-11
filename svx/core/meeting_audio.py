@@ -103,6 +103,26 @@ def record_dual_wav(
             logging.warning("Loopback device status: %s", status)
         loop_q.put(indata.copy())
 
+    def _write_pair(
+        wav_file: sf.SoundFile,
+        mic_data: np.ndarray[Any, np.dtype[np.int16]] | None,
+        loop_data: np.ndarray[Any, np.dtype[np.int16]] | None,
+    ) -> None:
+        """Write one pair of mic/loopback buffers as interleaved stereo."""
+        if mic_data is not None and loop_data is not None:
+            min_len = min(len(mic_data), len(loop_data))
+            stereo = np.column_stack((
+                mic_data[:min_len].flatten(),
+                loop_data[:min_len].flatten(),
+            ))
+            wav_file.write(stereo)
+        elif mic_data is not None:
+            mono = mic_data.flatten()
+            wav_file.write(np.column_stack((mono, np.zeros_like(mono))))
+        elif loop_data is not None:
+            mono = loop_data.flatten()
+            wav_file.write(np.column_stack((np.zeros_like(mono), mono)))
+
     def writer_thread(wav_file: sf.SoundFile) -> None:
         """Interleave mic (L) and loopback (R) into stereo frames."""
         while not writer_stop.is_set():
@@ -114,29 +134,25 @@ def record_dual_wav(
             except queue.Empty:
                 pass
             try:
-                loop_data = loop_q.get(timeout=0.01)
+                loop_data = loop_q.get(timeout=0.1)
             except queue.Empty:
                 pass
 
-            if mic_data is not None and loop_data is not None:
-                # Both available: interleave as stereo
-                min_len = min(len(mic_data), len(loop_data))
-                mic_mono = mic_data[:min_len].flatten()
-                loop_mono = loop_data[:min_len].flatten()
-                stereo = np.column_stack((mic_mono, loop_mono))
-                wav_file.write(stereo)
-            elif mic_data is not None:
-                # Only mic: pad loopback with zeros
-                mono = mic_data.flatten()
-                zeros = np.zeros_like(mono)
-                stereo = np.column_stack((mono, zeros))
-                wav_file.write(stereo)
-            elif loop_data is not None:
-                # Only loopback: pad mic with zeros
-                mono = loop_data.flatten()
-                zeros = np.zeros_like(mono)
-                stereo = np.column_stack((zeros, mono))
-                wav_file.write(stereo)
+            _write_pair(wav_file, mic_data, loop_data)
+
+        # Drain remaining buffered data after stop
+        while not mic_q.empty() or not loop_q.empty():
+            mic_data = None
+            loop_data = None
+            try:
+                mic_data = mic_q.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                loop_data = loop_q.get_nowait()
+            except queue.Empty:
+                pass
+            _write_pair(wav_file, mic_data, loop_data)
 
     with sf.SoundFile(
         str(output_path),
