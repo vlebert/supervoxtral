@@ -116,6 +116,8 @@ class RecordingPipeline:
                 loopback_device=loop_idx,
                 samplerate=rate,
                 stop_event=stop_for_recording,
+                mic_gain=self.cfg.defaults.mic_gain,
+                loopback_gain=self.cfg.defaults.loopback_gain,
             )
         else:
             self._status("Recording...")
@@ -403,9 +405,7 @@ class RecordingPipeline:
             )
             return fallback
 
-    def clean(
-        self, wav_path: Path, paths: dict[str, Path | None], keep_audio: bool
-    ) -> None:
+    def clean(self, wav_path: Path, paths: dict[str, Path | None], keep_audio: bool) -> None:
         """
         Clean up temporary files.
 

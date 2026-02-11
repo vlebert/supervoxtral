@@ -263,10 +263,15 @@ def init_user_config(force: bool = False, prompt_file: Path | None = None) -> Pa
         "# Recordings longer than chunk_duration are split into overlapping chunks\n"
         "chunk_duration = 300   # 5 minutes\n"
         "chunk_overlap = 30     # 30s overlap between chunks\n\n"
-        "# Loopback device for dual audio capture (mic + system audio)\n"
-        "# Set to your loopback device name (e.g. \"BlackHole 2ch\") to capture both\n"
+        "# Loopback device for dual audio capture (mic + system audio)\n\n"
+        '# Set to your loopback device name (e.g. "BlackHole 2ch") to capture both\n'
         "# Leave commented out to record microphone only\n"
         '# loopback_device = "BlackHole 2ch"\n\n'
+        "# Gain adjustment for dual-device recording (mic + loopback)\n"
+        "# Values are multipliers: 1.0 = no change, 0.5 = half volume, 2.0 = double volume\n"
+        "# Adjust these if one source is too loud or too quiet in your recordings\n"
+        "mic_gain = 1.0\n"
+        "loopback_gain = 1.0\n\n"
         "# Audio recording parameters\n"
         "rate = 16000\n"
         "channels = 1\n"
@@ -330,6 +335,8 @@ class DefaultsConfig:
     chunk_duration: int = 300
     chunk_overlap: int = 30
     loopback_device: str | None = None
+    mic_gain: float = 1.0
+    loopback_gain: float = 1.0
 
 
 @dataclass
@@ -382,6 +389,8 @@ class Config:
             "chunk_duration": int(user_defaults_raw.get("chunk_duration", 300)),
             "chunk_overlap": int(user_defaults_raw.get("chunk_overlap", 30)),
             "loopback_device": user_defaults_raw.get("loopback_device"),
+            "mic_gain": float(user_defaults_raw.get("mic_gain", 1.0)),
+            "loopback_gain": float(user_defaults_raw.get("loopback_gain", 1.0)),
         }
         channels = defaults_data["channels"]
         if channels not in (1, 2):
@@ -403,6 +412,12 @@ class Config:
             raise ValueError("chunk_overlap must be between 0 and 120 seconds")
         if chunk_overlap >= chunk_duration:
             raise ValueError("chunk_overlap must be less than chunk_duration")
+        mic_gain = defaults_data["mic_gain"]
+        if not (0.0 <= mic_gain <= 10.0):
+            raise ValueError("mic_gain must be between 0.0 and 10.0")
+        loopback_gain = defaults_data["loopback_gain"]
+        if not (0.0 <= loopback_gain <= 10.0):
+            raise ValueError("loopback_gain must be between 0.0 and 10.0")
         defaults = DefaultsConfig(**defaults_data)
         # Conditional output directories
         if defaults.keep_audio_files:

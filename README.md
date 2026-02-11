@@ -2,9 +2,15 @@
 
 ![Supervoxtral](supervoxtral.gif)
 
-SuperVoxtral is a lightweight Python CLI/GUI utility for recording microphone audio and processing it via a 2-step pipeline using Mistral's APIs.
+SuperVoxtral is a lightweight Python CLI/GUI utility for recording audio and processing it via a 2-step pipeline using Mistral's APIs.
 
 The pipeline works in two stages: (1) **Transcription** — audio is converted to text using Voxtral's dedicated transcription endpoint (`voxtral-mini-latest`), which delivers fast inference, high accuracy across languages, and minimal API costs; (2) **Transformation** — the raw transcript is refined by a text-based LLM (e.g., `mistral-small-latest`) using a configurable prompt for tasks like error correction, summarization, or reformatting. In pure transcription mode (`--transcribe`), only step 1 is performed.
+
+**Key features:**
+- **Speaker diarization** — identifies who said what (enabled by default)
+- **Auto-chunking** — long recordings (> 5 min) are automatically split, transcribed in parallel, and merged without duplicates
+- **Dual audio capture** — records microphone + system audio (e.g., meeting participants on a call) when a loopback device is configured
+- **Meeting-ready** — long recordings auto-save all files for data protection; use any prompt for meeting summaries, action items, etc.
 
 For instance, use a prompt like: "_Transcribe this audio precisely and remove all minor speech hesitations: "um", "uh", "er", "euh", "ben", etc._"
 
@@ -103,6 +109,72 @@ To enable fast, hotkey-driven access on macOS, integrate SuperVoxtral with the S
 
 ![macOS Shortcut Setup](macos-shortcut.png)
 
+## Capturing system audio (loopback)
+
+To record both your microphone and the audio playing on your computer (e.g., remote participants in a video call), you need a loopback audio device. The setup depends on your OS:
+
+### macOS — BlackHole (free, open source)
+
+1. Install BlackHole:
+   ```
+   brew install --cask blackhole-2ch
+   ```
+   (Restart may be required after install.)
+
+2. Open **Audio MIDI Setup** (Spotlight → "Audio MIDI Setup").
+
+3. Click `+` at the bottom left → **Create Multi-Output Device**.
+
+4. Check your output device (e.g., "Headphones" or "External Speakers") — it must be **first** (clock source).
+
+5. Check **BlackHole 2ch**.
+
+6. Optionally rename it (e.g., "Headphones + BlackHole").
+
+7. Set this Multi-Output Device as your system sound output (System Settings → Sound → Output).
+
+8. In your `config.toml`:
+   ```toml
+   loopback_device = "BlackHole 2ch"
+   ```
+
+> **Note:** System volume control does not work with Multi-Output Devices (macOS limitation). Adjust volume in individual applications or in Audio MIDI Setup.
+
+### Linux — PulseAudio monitor (built-in)
+
+PulseAudio exposes a `.monitor` source for every output device. No additional software needed.
+
+1. Find your monitor source name:
+   ```
+   pactl list sources short | grep monitor
+   ```
+   Example output: `alsa_output.pci-0000_00_1f.3.analog-stereo.monitor`
+
+2. In your `config.toml`:
+   ```toml
+   loopback_device = "Monitor of Built-in Audio"
+   ```
+   (Use the name as shown by `pactl` or `sounddevice`.)
+
+### Windows — WASAPI loopback (built-in)
+
+Windows supports loopback capture natively via WASAPI since Vista.
+
+1. The loopback device typically appears as "Stereo Mix" or similar in your sound settings. You may need to enable it:
+   - Right-click the speaker icon → Sound Settings → More sound settings
+   - Recording tab → right-click → Show Disabled Devices → Enable "Stereo Mix"
+
+2. In your `config.toml`:
+   ```toml
+   loopback_device = "Stereo Mix"
+   ```
+
+### How it works
+
+When `loopback_device` is configured, SuperVoxtral opens two audio inputs simultaneously (microphone + loopback) and mixes them into a single mono WAV file. You can adjust the relative volume of each source via `mic_gain` and `loopback_gain` in `config.toml` (default: 1.0 each).
+
+When `loopback_device` is not set (default), only the microphone is recorded.
+
 ## Configuration (API keys and prompts)
 
 API keys and default behavior are configured only in your user configuration file (config.toml), not via environment variables.
@@ -163,10 +235,22 @@ language = "fr"
 # context_bias = ["SuperVoxtral", "Mistral AI", "Voxtral"]
 context_bias = []
 
+# Speaker diarization (identify speakers in transcription)
+diarize = true
+
+# Auto-chunking for long recordings (seconds)
+# Recordings longer than chunk_duration are split into overlapping chunks
+chunk_duration = 300   # 5 minutes
+chunk_overlap = 30     # 30s overlap between chunks
+
+# Loopback device for dual audio capture (mic + system audio)
+# See "Capturing system audio" section for setup instructions
+# loopback_device = "BlackHole 2ch"
+
 # Audio recording parameters
 rate = 16000
 channels = 1
-device = ""
+#device = ""
 
 # Output persistence:
 # - keep_audio_files: false uses temp files (no recordings/ dir),
@@ -208,7 +292,7 @@ No `.env` or shell environment variables are used for API keys.
 
 The CLI provides config utilities and a unified `record` entrypoint for both CLI and GUI modes, using a centralized pipeline for consistent behavior (recording, conversion, transcription, saving, clipboard copy, logging).
 
-**Zero-footprint defaults**: No directories created; outputs to console/clipboard. Use `--save-all` or set `keep_* = true` in config.toml for persistence.
+**Zero-footprint defaults**: No directories created; outputs to console/clipboard. Use `--save-all` or set `keep_* = true` in config.toml to persist files to user data directories (e.g., `~/Library/Application Support/SuperVoxtral/` on macOS). Long recordings (> chunk_duration) automatically enable persistence for data protection.
 
 Most defaults (provider, format, model, language, rate, channels, device, keep flags, copy) come from config.toml. CLI overrides are limited to specific options.
 
@@ -247,6 +331,7 @@ By default in CLI, uses the 'default' prompt from config.toml [prompt.default]. 
 
 ## Changelog
 
+- 0.4.0: Meeting recording support — speaker diarization (enabled by default), auto-chunking for long recordings (> 5 min) with overlap and segment deduplication, dual audio capture (mic + system loopback with configurable per-source gain). User data files now stored in platform-standard directories instead of cwd. Long recordings auto-save all files for data protection.
 - 0.3.0: Add `context_bias` support for Mistral Voxtral transcription — a list of up to 100 words/phrases to help the model recognize specific vocabulary (proper nouns, technical terms, brand names). Configurable in `config.toml` under `[defaults]`.
 - 0.2.0: 2-step pipeline (transcription → transformation). Replaces chat-with-audio by dedicated transcription endpoint + text-based LLM. New `chat_model` config option. Raw transcript saved separately when transformation is applied.
 - 0.1.5: Fix bug on prompt selecting

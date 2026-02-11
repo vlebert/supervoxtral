@@ -65,12 +65,14 @@ def record_dual_wav(
     loopback_device: int | str,
     samplerate: int = 16000,
     stop_event: Event | None = None,
+    mic_gain: float = 1.0,
+    loopback_gain: float = 1.0,
 ) -> float:
     """
     Record from two input devices simultaneously into a mono WAV file.
 
-    Both sources (mic + loopback) are averaged together. Adjust input levels
-    at the OS level if one source is too loud or too quiet.
+    Both sources (mic + loopback) are averaged together with optional gain
+    adjustment per source.
 
     Args:
         output_path: Destination WAV file path (mono).
@@ -78,6 +80,8 @@ def record_dual_wav(
         loopback_device: Loopback device index or name (e.g. BlackHole).
         samplerate: Sample rate in Hz.
         stop_event: External stop flag. If None, records until KeyboardInterrupt.
+        mic_gain: Gain multiplier for microphone (1.0 = no change, 0.5 = half, 2.0 = double).
+        loopback_gain: Gain multiplier for loopback (1.0 = no change, 0.5 = half, 2.0 = double).
 
     Returns:
         Recording duration in seconds.
@@ -149,7 +153,9 @@ def record_dual_wav(
             mix_len = min(mic_len, loop_len)
 
             if mix_len > 0:
-                mixed = (mic_carry[:mix_len] + loop_carry[:mix_len]) * 0.5
+                mixed = (
+                    mic_carry[:mix_len] * mic_gain + loop_carry[:mix_len] * loopback_gain
+                ) * 0.5
                 clipped = np.clip(mixed, -32768.0, 32767.0).astype(np.int16)
                 wav_file.write(clipped)
                 mic_carry = mic_carry[mix_len:]
@@ -168,17 +174,17 @@ def record_dual_wav(
         mix_len = min(mic_len, loop_len)
 
         if mix_len > 0:
-            mixed = (mic_carry[:mix_len] + loop_carry[:mix_len]) * 0.5
+            mixed = (mic_carry[:mix_len] * mic_gain + loop_carry[:mix_len] * loopback_gain) * 0.5
             clipped = np.clip(mixed, -32768.0, 32767.0).astype(np.int16)
             wav_file.write(clipped)
             mic_carry = mic_carry[mix_len:]
             loop_carry = loop_carry[mix_len:]
 
-        # Write any leftover from whichever source has more
+        # Write any leftover from whichever source has more (with gain applied)
         if len(mic_carry) > 0:
-            wav_file.write(mic_carry.astype(np.int16))
+            wav_file.write(np.clip(mic_carry * mic_gain, -32768.0, 32767.0).astype(np.int16))
         if len(loop_carry) > 0:
-            wav_file.write(loop_carry.astype(np.int16))
+            wav_file.write(np.clip(loop_carry * loopback_gain, -32768.0, 32767.0).astype(np.int16))
 
     with sf.SoundFile(
         str(output_path),

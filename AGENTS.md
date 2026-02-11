@@ -7,22 +7,26 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
 
 1. **Centralized Pipeline**: All recording/transcription flows through `RecordingPipeline` (svx/core/pipeline.py) for consistency between CLI and GUI
 2. **Config-driven**: Structured `Config` dataclass (svx/core/config.py) loaded from user's config.toml; CLI args override specific values
-3. **Zero-footprint defaults**: Temp files auto-deleted unless `keep_*` flags or `--save-all` enabled; no project directories created by default
+3. **Zero-footprint defaults**: Temp files auto-deleted unless `keep_*` flags or `--save-all` enabled; no project directories created by default. Long recordings (> chunk_duration) auto-activate save_all for data protection.
 4. **Provider abstraction**: `Provider` protocol (svx/providers/base.py) for pluggable transcription services
+5. **User-standard paths**: Data files (recordings, transcripts, logs) stored in platform-standard data directories (`USER_DATA_DIR`), not cwd. Config in `USER_CONFIG_DIR`.
 
 ### Module Structure
 
 - **svx/cli.py**: Typer CLI entrypoint; orchestration only, delegates to Config and Pipeline
 - **svx/core/**:
-  - `config.py`: Config dataclasses, TOML loading, prompt resolution (supports multiple prompts via [prompt.key] sections), logging setup
-  - `pipeline.py`: RecordingPipeline class - records, converts (ffmpeg), transcribes, saves conditionally, copies to clipboard
+  - `config.py`: Config dataclasses, TOML loading, prompt resolution (supports multiple prompts via [prompt.key] sections), logging setup. `get_user_data_dir()` / `get_user_config_dir()` for platform-standard paths.
+  - `pipeline.py`: RecordingPipeline class - records (single or dual device), auto-chunks long recordings, transcribes with diarization, saves conditionally, copies to clipboard
   - `audio.py`: WAV recording (sounddevice), ffmpeg detection/conversion to MP3/Opus
+  - `chunking.py`: Split long WAV files into overlapping chunks (`split_wav`), merge transcription segments (`merge_segments`) with crossfade deduplication, merge texts (`merge_texts`)
+  - `meeting_audio.py`: Dual-device recording (`record_dual_wav`) — mic + loopback mixed to mono with configurable per-source gain. `find_loopback_device()` for device discovery.
+  - `formatting.py`: Format diarized transcription segments with speaker labels and timestamps (`format_diarized_transcript`)
   - `prompt.py`: Multi-prompt resolution from config dict (key-based: "default", "test", etc.)
   - `storage.py`: Save transcripts/JSON conditionally based on keep_transcript_files
   - `clipboard.py`: Cross-platform clipboard copy
 - **svx/providers/**:
-  - `base.py`: Provider protocol, TranscriptionResult TypedDict, ProviderError
-  - `mistral.py`: Mistral Voxtral implementation (dedicated transcription endpoint + text-based LLM chat)
+  - `base.py`: Provider protocol, TranscriptionResult/TranscriptionSegment TypedDicts, ProviderError
+  - `mistral.py`: Mistral Voxtral implementation (dedicated transcription endpoint + text-based LLM chat, diarization support)
   - `openai.py`: OpenAI Whisper implementation
   - `__init__.py`: Provider registry (get_provider)
 - **svx/ui/**:
@@ -38,17 +42,21 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
    - GUI: Dynamic buttons for each [prompt.key]; "Transcribe" button bypasses prompt
    - Priority: CLI arg > config [prompt.key] > user prompt file > fallback
 5. **Pipeline Execution** (RecordingPipeline) — 2-step pipeline:
-   - record(): WAV recording via sounddevice, temp file if keep_audio_files=false
+   - record(): WAV recording via sounddevice (or dual-device via meeting_audio if `loopback_device` configured), temp file if keep_audio_files=false
    - process(): Optional ffmpeg conversion, then:
-     - Step 1 (Transcription): audio → text via provider.transcribe() (dedicated endpoint, always)
+     - Auto-chunks if audio duration > `chunk_duration` (default 300s/5min): splits with `chunk_overlap` (default 30s), transcribes each chunk, merges results
+     - Step 1 (Transcription): audio → text via provider.transcribe() with `diarize=True` by default (speaker identification). Segments deduplicated across chunks via crossfade-at-midpoint.
      - Step 2 (Transformation): text + prompt → text via provider.chat() (text LLM, only when prompt provided)
+     - When diarize=True and segments available: output formatted with speaker labels and timestamps via `format_diarized_transcript()`
    - Uses `cfg.defaults.model` for transcription, `cfg.defaults.chat_model` for transformation
+   - Long recordings (> chunk_duration) auto-activate save_all (keep audio/transcripts/logs) for data protection
    - Conditional save_transcript (+ raw transcript file when transformation applied), clipboard copy
-   - clean(): Temp file cleanup
+   - clean(): Temp file + chunk temp dir cleanup
 6. **Transcribe Mode** (CLI only):
    - --transcribe flag: No prompt, step 1 only (dedicated transcription endpoint)
    - GUI: --transcribe ignored (warning); use "Transcribe" button instead
 7. **Output**: CLI prints result; GUI emits via callback; temp files auto-deleted unless keep_* enabled
+8. **Dual Audio Capture** (optional): When `loopback_device` is set in config, records mic + system audio via two `sd.InputStream` into a single mono WAV. Per-source gain adjustment via `mic_gain` / `loopback_gain` config (default 1.0). Requires a system loopback driver (BlackHole on macOS, native on Linux/Windows).
 
 ## Build
 ```bash
