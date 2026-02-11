@@ -2,7 +2,12 @@
 Dual-device audio recording for SuperVoxtral.
 
 Captures audio from two input devices simultaneously (e.g. microphone + system loopback)
-and writes a stereo WAV file with mic on left channel and loopback on right channel.
+and mixes them into a single mono WAV file.
+
+The two device callbacks fire independently (unsynchronized clocks). To produce a clean
+mix, each source accumulates raw samples into its own buffer. A writer thread periodically
+takes the samples available from both buffers, averages the overlapping portion, and
+carries over any remainder for the next cycle.
 
 Dependencies:
 - sounddevice
@@ -62,12 +67,13 @@ def record_dual_wav(
     stop_event: Event | None = None,
 ) -> float:
     """
-    Record from two input devices simultaneously into a stereo WAV file.
+    Record from two input devices simultaneously into a mono WAV file.
 
-    Left channel = microphone, Right channel = loopback (system audio).
+    Both sources (mic + loopback) are averaged together. Adjust input levels
+    at the OS level if one source is too loud or too quiet.
 
     Args:
-        output_path: Destination WAV file path (stereo).
+        output_path: Destination WAV file path (mono).
         mic_device: Microphone device index or name. None for default.
         loopback_device: Loopback device index or name (e.g. BlackHole).
         samplerate: Sample rate in Hz.
@@ -78,8 +84,10 @@ def record_dual_wav(
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Raw sample queues — callbacks push int16 arrays, no processing
     mic_q: queue.Queue[np.ndarray[Any, np.dtype[np.int16]]] = queue.Queue()
     loop_q: queue.Queue[np.ndarray[Any, np.dtype[np.int16]]] = queue.Queue()
+
     writer_stop = Event()
     start_time = time.time()
 
@@ -103,62 +111,80 @@ def record_dual_wav(
             logging.warning("Loopback device status: %s", status)
         loop_q.put(indata.copy())
 
-    def _write_pair(
-        wav_file: sf.SoundFile,
-        mic_data: np.ndarray[Any, np.dtype[np.int16]] | None,
-        loop_data: np.ndarray[Any, np.dtype[np.int16]] | None,
-    ) -> None:
-        """Write one pair of mic/loopback buffers as interleaved stereo."""
-        if mic_data is not None and loop_data is not None:
-            min_len = min(len(mic_data), len(loop_data))
-            stereo = np.column_stack((
-                mic_data[:min_len].flatten(),
-                loop_data[:min_len].flatten(),
-            ))
-            wav_file.write(stereo)
-        elif mic_data is not None:
-            mono = mic_data.flatten()
-            wav_file.write(np.column_stack((mono, np.zeros_like(mono))))
-        elif loop_data is not None:
-            mono = loop_data.flatten()
-            wav_file.write(np.column_stack((np.zeros_like(mono), mono)))
+    def _drain_queue(
+        q: queue.Queue[np.ndarray[Any, np.dtype[np.int16]]],
+    ) -> np.ndarray[Any, np.dtype[np.float32]]:
+        """Drain all pending blocks from a queue into a single float32 array."""
+        blocks: list[np.ndarray[Any, np.dtype[np.int16]]] = []
+        while True:
+            try:
+                blocks.append(q.get_nowait())
+            except queue.Empty:
+                break
+        if not blocks:
+            return np.array([], dtype=np.float32)
+        return np.concatenate(blocks).flatten().astype(np.float32)
 
     def writer_thread(wav_file: sf.SoundFile) -> None:
-        """Interleave mic (L) and loopback (R) into stereo frames."""
+        """Periodically drain both queues, average the overlapping part, write."""
+        # Persistent carry-over buffers for samples not yet mixed
+        mic_carry = np.array([], dtype=np.float32)
+        loop_carry = np.array([], dtype=np.float32)
+
         while not writer_stop.is_set():
-            mic_data: np.ndarray[Any, np.dtype[np.int16]] | None = None
-            loop_data: np.ndarray[Any, np.dtype[np.int16]] | None = None
+            time.sleep(0.05)
 
-            try:
-                mic_data = mic_q.get(timeout=0.1)
-            except queue.Empty:
-                pass
-            try:
-                loop_data = loop_q.get(timeout=0.1)
-            except queue.Empty:
-                pass
+            # Drain queues and append to carry-over
+            mic_new = _drain_queue(mic_q)
+            loop_new = _drain_queue(loop_q)
 
-            _write_pair(wav_file, mic_data, loop_data)
+            if len(mic_new) > 0:
+                mic_carry = np.concatenate([mic_carry, mic_new])
+            if len(loop_new) > 0:
+                loop_carry = np.concatenate([loop_carry, loop_new])
 
-        # Drain remaining buffered data after stop
-        while not mic_q.empty() or not loop_q.empty():
-            mic_data = None
-            loop_data = None
-            try:
-                mic_data = mic_q.get_nowait()
-            except queue.Empty:
-                pass
-            try:
-                loop_data = loop_q.get_nowait()
-            except queue.Empty:
-                pass
-            _write_pair(wav_file, mic_data, loop_data)
+            # Mix the overlapping portion (average), keep remainder
+            mic_len = len(mic_carry)
+            loop_len = len(loop_carry)
+            mix_len = min(mic_len, loop_len)
+
+            if mix_len > 0:
+                mixed = (mic_carry[:mix_len] + loop_carry[:mix_len]) * 0.5
+                clipped = np.clip(mixed, -32768.0, 32767.0).astype(np.int16)
+                wav_file.write(clipped)
+                mic_carry = mic_carry[mix_len:]
+                loop_carry = loop_carry[mix_len:]
+
+        # Final drain after stop
+        mic_new = _drain_queue(mic_q)
+        loop_new = _drain_queue(loop_q)
+        if len(mic_new) > 0:
+            mic_carry = np.concatenate([mic_carry, mic_new])
+        if len(loop_new) > 0:
+            loop_carry = np.concatenate([loop_carry, loop_new])
+
+        mic_len = len(mic_carry)
+        loop_len = len(loop_carry)
+        mix_len = min(mic_len, loop_len)
+
+        if mix_len > 0:
+            mixed = (mic_carry[:mix_len] + loop_carry[:mix_len]) * 0.5
+            clipped = np.clip(mixed, -32768.0, 32767.0).astype(np.int16)
+            wav_file.write(clipped)
+            mic_carry = mic_carry[mix_len:]
+            loop_carry = loop_carry[mix_len:]
+
+        # Write any leftover from whichever source has more
+        if len(mic_carry) > 0:
+            wav_file.write(mic_carry.astype(np.int16))
+        if len(loop_carry) > 0:
+            wav_file.write(loop_carry.astype(np.int16))
 
     with sf.SoundFile(
         str(output_path),
         mode="w",
         samplerate=samplerate,
-        channels=2,
+        channels=1,
         subtype="PCM_16",
     ) as wav_file:
         mic_stream = sd.InputStream(
@@ -193,7 +219,7 @@ def record_dual_wav(
 
     duration = time.time() - start_time
     logging.info(
-        "Recorded dual WAV %s (%.2fs @ %d Hz, stereo: mic L + loopback R)",
+        "Recorded dual WAV %s (%.2fs @ %d Hz, mono mix: mic + loopback)",
         output_path,
         duration,
         samplerate,

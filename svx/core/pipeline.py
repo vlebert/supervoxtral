@@ -103,10 +103,6 @@ class RecordingPipeline:
         if loopback_device:
             from svx.core.meeting_audio import find_loopback_device, record_dual_wav
 
-            if channels == 1:
-                logging.warning(
-                    "Dual recording always produces stereo (2ch); channels=1 config ignored"
-                )
             self._status("Recording (dual: mic + loopback)...")
             loop_idx = find_loopback_device(loopback_device)
             if loop_idx is None:
