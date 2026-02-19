@@ -580,9 +580,9 @@ class ResultDialog(QDialog):
 
         # Optional file link
         transcript_path = paths.get("transcript") or paths.get("txt")
-        if transcript_path is not None:
+        if isinstance(transcript_path, Path):
             link_label = QLabel(
-                f'<a href="file:///{transcript_path}" style="color:#5ea8ff;">'
+                f'<a href="{transcript_path.as_uri()}" style="color:#5ea8ff;">'
                 f"{transcript_path}</a>"
             )
             link_label.setOpenExternalLinks(True)
@@ -602,7 +602,9 @@ class ResultDialog(QDialog):
         QApplication.clipboard().setText(text)
         original = btn.text()
         btn.setText("Copied!")
-        QTimer.singleShot(1500, lambda: btn.setText(original))
+        # Pass self as context: Qt cancels the timer if the dialog is destroyed first,
+        # preventing a callback into an already-deleted C++ QPushButton object.
+        QTimer.singleShot(1500, self, lambda: btn.setText(original))
 
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
         if event.button() == Qt.MouseButton.LeftButton:
