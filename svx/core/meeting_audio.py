@@ -129,37 +129,36 @@ def record_dual_wav(
             return np.array([], dtype=np.float32)
         return np.concatenate(blocks).flatten().astype(np.float32)
 
+    def _mix_and_write(
+        wav_file: sf.SoundFile,
+        mic_carry: np.ndarray[Any, np.dtype[np.float32]],
+        loop_carry: np.ndarray[Any, np.dtype[np.float32]],
+    ) -> tuple[np.ndarray[Any, np.dtype[np.float32]], np.ndarray[Any, np.dtype[np.float32]]]:
+        """Mix overlapping samples from both carries, write to file, return remainders."""
+        mix_len = min(len(mic_carry), len(loop_carry))
+        if mix_len > 0:
+            mixed = mic_carry[:mix_len] * mic_gain + loop_carry[:mix_len] * loopback_gain
+            wav_file.write(np.clip(mixed, -32768.0, 32767.0).astype(np.int16))
+            mic_carry = mic_carry[mix_len:]
+            loop_carry = loop_carry[mix_len:]
+        return mic_carry, loop_carry
+
     def writer_thread(wav_file: sf.SoundFile) -> None:
-        """Periodically drain both queues, average the overlapping part, write."""
-        # Persistent carry-over buffers for samples not yet mixed
+        """Periodically drain both queues, mix the overlapping part, write."""
         mic_carry = np.array([], dtype=np.float32)
         loop_carry = np.array([], dtype=np.float32)
 
         while not writer_stop.is_set():
             time.sleep(0.05)
 
-            # Drain queues and append to carry-over
             mic_new = _drain_queue(mic_q)
             loop_new = _drain_queue(loop_q)
-
             if len(mic_new) > 0:
                 mic_carry = np.concatenate([mic_carry, mic_new])
             if len(loop_new) > 0:
                 loop_carry = np.concatenate([loop_carry, loop_new])
 
-            # Mix the overlapping portion (average), keep remainder
-            mic_len = len(mic_carry)
-            loop_len = len(loop_carry)
-            mix_len = min(mic_len, loop_len)
-
-            if mix_len > 0:
-                mixed = (
-                    mic_carry[:mix_len] * mic_gain + loop_carry[:mix_len] * loopback_gain
-                ) * 0.5
-                clipped = np.clip(mixed, -32768.0, 32767.0).astype(np.int16)
-                wav_file.write(clipped)
-                mic_carry = mic_carry[mix_len:]
-                loop_carry = loop_carry[mix_len:]
+            mic_carry, loop_carry = _mix_and_write(wav_file, mic_carry, loop_carry)
 
         # Final drain after stop
         mic_new = _drain_queue(mic_q)
@@ -169,16 +168,7 @@ def record_dual_wav(
         if len(loop_new) > 0:
             loop_carry = np.concatenate([loop_carry, loop_new])
 
-        mic_len = len(mic_carry)
-        loop_len = len(loop_carry)
-        mix_len = min(mic_len, loop_len)
-
-        if mix_len > 0:
-            mixed = (mic_carry[:mix_len] * mic_gain + loop_carry[:mix_len] * loopback_gain) * 0.5
-            clipped = np.clip(mixed, -32768.0, 32767.0).astype(np.int16)
-            wav_file.write(clipped)
-            mic_carry = mic_carry[mix_len:]
-            loop_carry = loop_carry[mix_len:]
+        mic_carry, loop_carry = _mix_and_write(wav_file, mic_carry, loop_carry)
 
         # Write any leftover from whichever source has more (with gain applied)
         if len(mic_carry) > 0:
