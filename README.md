@@ -331,6 +331,7 @@ By default in CLI, uses the 'default' prompt from config.toml [prompt.default]. 
 
 ## Changelog
 
+- 0.4.2: Fix audio saturation and distortion — record at device native sample rate (typically 48 kHz) instead of 16 kHz to eliminate PortAudio resampling artifacts; switch to float32 capture pipeline to avoid int16 clipping during format conversion. Remove 0.5 averaging factor in dual recording mix (meeting use case: sources are mutually exclusive, averaging unnecessarily halves the signal level).
 - 0.4.1: Fix dual audio mix attenuation — removed unnecessary 0.5 factor that was halving mic volume when loopback was silent; `np.clip` already prevents int16 overflow. Refactored mixing logic into a `_mix_and_write` helper.
 - 0.4.0: Meeting recording support — speaker diarization (enabled by default), auto-chunking for long recordings (> 5 min) with overlap and segment deduplication, dual audio capture (mic + system loopback with configurable per-source gain). User data files now stored in platform-standard directories instead of cwd. Long recordings auto-save all files for data protection.
 - 0.3.0: Add `context_bias` support for Mistral Voxtral transcription — a list of up to 100 words/phrases to help the model recognize specific vocabulary (proper nouns, technical terms, brand names). Configurable in `config.toml` under `[defaults]`.

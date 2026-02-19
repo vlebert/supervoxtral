@@ -88,15 +88,27 @@ def record_dual_wav(
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Raw sample queues — callbacks push int16 arrays, no processing
-    mic_q: queue.Queue[np.ndarray[Any, np.dtype[np.int16]]] = queue.Queue()
-    loop_q: queue.Queue[np.ndarray[Any, np.dtype[np.int16]]] = queue.Queue()
+    # Use the mic device's native sample rate to avoid PortAudio resampling artifacts
+    try:
+        dev_info = sd.query_devices(mic_device, "input")
+        native_rate = int(dev_info["default_samplerate"])
+        if native_rate > 0:
+            logging.info(
+                "Using device native sample rate %d Hz (requested %d Hz)", native_rate, samplerate
+            )
+            samplerate = native_rate
+    except Exception:
+        logging.debug("Could not query device native sample rate, using %d Hz", samplerate)
+
+    # Raw sample queues — callbacks push float32 arrays in [-1.0, 1.0]
+    mic_q: queue.Queue[np.ndarray[Any, np.dtype[np.float32]]] = queue.Queue()
+    loop_q: queue.Queue[np.ndarray[Any, np.dtype[np.float32]]] = queue.Queue()
 
     writer_stop = Event()
     start_time = time.time()
 
     def mic_callback(
-        indata: np.ndarray[Any, np.dtype[np.int16]],
+        indata: np.ndarray[Any, np.dtype[np.float32]],
         frames: int,
         time_info: sd.CallbackFlags,
         status: sd.CallbackFlags,
@@ -106,7 +118,7 @@ def record_dual_wav(
         mic_q.put(indata.copy())
 
     def loop_callback(
-        indata: np.ndarray[Any, np.dtype[np.int16]],
+        indata: np.ndarray[Any, np.dtype[np.float32]],
         frames: int,
         time_info: sd.CallbackFlags,
         status: sd.CallbackFlags,
@@ -116,10 +128,10 @@ def record_dual_wav(
         loop_q.put(indata.copy())
 
     def _drain_queue(
-        q: queue.Queue[np.ndarray[Any, np.dtype[np.int16]]],
+        q: queue.Queue[np.ndarray[Any, np.dtype[np.float32]]],
     ) -> np.ndarray[Any, np.dtype[np.float32]]:
         """Drain all pending blocks from a queue into a single float32 array."""
-        blocks: list[np.ndarray[Any, np.dtype[np.int16]]] = []
+        blocks: list[np.ndarray[Any, np.dtype[np.float32]]] = []
         while True:
             try:
                 blocks.append(q.get_nowait())
@@ -127,7 +139,7 @@ def record_dual_wav(
                 break
         if not blocks:
             return np.array([], dtype=np.float32)
-        return np.concatenate(blocks).flatten().astype(np.float32)
+        return np.concatenate(blocks).flatten()
 
     def _mix_and_write(
         wav_file: sf.SoundFile,
@@ -138,7 +150,7 @@ def record_dual_wav(
         mix_len = min(len(mic_carry), len(loop_carry))
         if mix_len > 0:
             mixed = mic_carry[:mix_len] * mic_gain + loop_carry[:mix_len] * loopback_gain
-            wav_file.write(np.clip(mixed, -32768.0, 32767.0).astype(np.int16))
+            wav_file.write(np.clip(mixed, -1.0, 1.0))
             mic_carry = mic_carry[mix_len:]
             loop_carry = loop_carry[mix_len:]
         return mic_carry, loop_carry
@@ -172,9 +184,9 @@ def record_dual_wav(
 
         # Write any leftover from whichever source has more (with gain applied)
         if len(mic_carry) > 0:
-            wav_file.write(np.clip(mic_carry * mic_gain, -32768.0, 32767.0).astype(np.int16))
+            wav_file.write(np.clip(mic_carry * mic_gain, -1.0, 1.0))
         if len(loop_carry) > 0:
-            wav_file.write(np.clip(loop_carry * loopback_gain, -32768.0, 32767.0).astype(np.int16))
+            wav_file.write(np.clip(loop_carry * loopback_gain, -1.0, 1.0))
 
     with sf.SoundFile(
         str(output_path),
@@ -186,14 +198,14 @@ def record_dual_wav(
         mic_stream = sd.InputStream(
             samplerate=samplerate,
             channels=1,
-            dtype="int16",
+            dtype="float32",
             device=mic_device,
             callback=mic_callback,
         )
         loop_stream = sd.InputStream(
             samplerate=samplerate,
             channels=1,
-            dtype="int16",
+            dtype="float32",
             device=loopback_device,
             callback=loop_callback,
         )
