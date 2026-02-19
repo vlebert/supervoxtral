@@ -160,22 +160,37 @@ def get_fixed_font(point_size: int = 11) -> QFont:
 
 class LevelMeterWidget(QWidget):
     """
-    Compact horizontal audio level meter.
+    Compact horizontal audio level meter with a retro segmented look.
 
-    Shows a gradient bar (green→yellow→red) driven by RMS audio level,
-    with a white peak-hold marker that decays slowly.
+    Draws discrete LED-style segments in muted dark tones (cyan → amber → dark-red)
+    to match the app's dark monospace aesthetic. Includes a peak-hold segment.
     """
 
     _LABEL_W = 44
-    _TRACK_H = 10
+    _NUM_SEGS = 20
+    _SEG_GAP = 2
+    _TRACK_H = 8
+
+    # Colour zones (segment index thresholds)
+    _WARN_SEG = int(_NUM_SEGS * 0.68)   # amber starts here
+    _CLIP_SEG = int(_NUM_SEGS * 0.86)   # dark-red starts here
+
+    # Muted palette — dark enough to feel at home in the #0f1113 theme
+    _COL_OFF    = (13,  26,  34)   # barely-visible inactive segment
+    _COL_ON_LO  = (14, 116, 144)   # dark cyan  (normal signal)
+    _COL_ON_MID = (161,  88,  10)  # dark amber (warning)
+    _COL_ON_HI  = (160,  30,  30)  # dark red   (clip)
+    _COL_PK_LO  = (30,  160, 196)  # peak: brighter cyan
+    _COL_PK_MID = (210, 110,  14)  # peak: brighter amber
+    _COL_PK_HI  = (210,  45,  45)  # peak: brighter red
 
     def __init__(self, label: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._label = label
-        self._display_level: float = 0.0  # 0..1, smoothed
-        self._peak: float = 0.0  # 0..1, peak hold
-        self.setMinimumHeight(24)
-        self.setMaximumHeight(24)
+        self._display_level: float = 0.0
+        self._peak: float = 0.0
+        self.setMinimumHeight(22)
+        self.setMaximumHeight(22)
         self._decay_timer = QTimer(self)
         self._decay_timer.setInterval(80)
         self._decay_timer.timeout.connect(self._decay)
@@ -185,9 +200,8 @@ class LevelMeterWidget(QWidget):
         """Update the meter with a new RMS value (0.0 .. 1.0)."""
         level = 0.0
         if rms > 1e-5:
-            # Map [-50 dB, 0 dB] → [0, 1]  (log scale feels natural for audio)
+            # Log scale: map [-50 dB, 0 dB] → [0, 1]
             level = max(0.0, min(1.0, (20 * math.log10(rms) + 50) / 50))
-        # Fast attack: jump up immediately; slow release handled by _decay
         if level > self._display_level:
             self._display_level = level
         if self._display_level > self._peak:
@@ -201,8 +215,16 @@ class LevelMeterWidget(QWidget):
         if changed:
             self.update()
 
+    def _zone_colors(self, seg: int) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+        """Return (on_color, peak_color) for the given segment index."""
+        if seg >= self._CLIP_SEG:
+            return self._COL_ON_HI, self._COL_PK_HI
+        if seg >= self._WARN_SEG:
+            return self._COL_ON_MID, self._COL_PK_MID
+        return self._COL_ON_LO, self._COL_PK_LO
+
     def paintEvent(self, event) -> None:  # type: ignore[override]
-        from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPen
+        from PySide6.QtGui import QColor, QPainter
 
         w = self.width()
         h = self.height()
@@ -210,13 +232,14 @@ class LevelMeterWidget(QWidget):
         bar_w = max(1, w - bar_x - 4)
         bar_y = (h - self._TRACK_H) // 2
 
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        seg_w = max(1, (bar_w - (self._NUM_SEGS - 1) * self._SEG_GAP) // self._NUM_SEGS)
 
-        # Label
-        p.setPen(QColor(155, 184, 230))
+        p = QPainter(self)
+
+        # Label — muted blue-grey, same family as info_label
+        p.setPen(QColor(100, 140, 172))
         font = p.font()
-        font.setPointSize(9)
+        font.setPointSize(8)
         p.setFont(font)
         p.drawText(
             0,
@@ -227,25 +250,22 @@ class LevelMeterWidget(QWidget):
             self._label,
         )
 
-        # Track background
-        p.fillRect(bar_x, bar_y, bar_w, self._TRACK_H, QColor(25, 32, 40))
+        active = int(self._NUM_SEGS * self._display_level)
+        peak_seg = int(self._NUM_SEGS * self._peak)
+        show_peak = self._peak > 0.04 and peak_seg < self._NUM_SEGS
 
-        # Level fill with green→yellow→red gradient
-        fill_w = int(bar_w * self._display_level)
-        if fill_w > 0:
-            grad = QLinearGradient(bar_x, 0, bar_x + bar_w, 0)
-            grad.setColorAt(0.0, QColor(34, 197, 94))
-            grad.setColorAt(0.65, QColor(234, 179, 8))
-            grad.setColorAt(0.85, QColor(239, 68, 68))
-            p.fillRect(bar_x, bar_y, fill_w, self._TRACK_H, QBrush(grad))
-
-        # Peak marker (white vertical tick)
-        if self._peak > 0.02:
-            peak_x = bar_x + int(bar_w * self._peak)
-            pen = QPen(QColor(255, 255, 255, 200))
-            pen.setWidthF(1.5)
-            p.setPen(pen)
-            p.drawLine(peak_x, bar_y, peak_x, bar_y + self._TRACK_H - 1)
+        for i in range(self._NUM_SEGS):
+            x = bar_x + i * (seg_w + self._SEG_GAP)
+            on_col, pk_col = self._zone_colors(i)
+            is_active = i < active
+            is_peak = show_peak and i == peak_seg and not is_active
+            if is_active:
+                r, g, b = on_col
+            elif is_peak:
+                r, g, b = pk_col
+            else:
+                r, g, b = self._COL_OFF
+            p.fillRect(x, bar_y, seg_w, self._TRACK_H, QColor(r, g, b))
 
 
 class AudioLevelMonitor(QObject):
@@ -671,6 +691,17 @@ class RecorderWindow(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(6)
 
+        # Title
+        title_html = (
+            "<span style='color:#1e3a52'>══</span>"
+            " <span style='color:#5a8fae'>SuperVoxtral</span> "
+            "<span style='color:#1e3a52'>══</span>"
+        )
+        title_label = QLabel(title_html)
+        title_label.setTextFormat(Qt.TextFormat.RichText)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title_label)
+
         # Audio level meters (real-time RMS from separate monitoring streams)
         self._mic_meter = LevelMeterWidget("MIC", self)
         layout.addWidget(self._mic_meter)
@@ -689,34 +720,37 @@ class RecorderWindow(QWidget):
         )
         self._level_monitor.levels.connect(self._on_levels)
 
-        # Minimal geek status line under meters (colored + bullets)
-        sep = "<span style='color:#8b949e'> • </span>"
-        prov_model_html = (
-            f"<span style='color:#7ee787'>"
-            f"{self.cfg.defaults.provider}/{self.cfg.defaults.model}"
-            "</span>"
+        # Config info line: model / chat model / audio format / language
+        _k = "color:#3d5a72"   # key label colour (dimmed)
+        _sep = "<span style='color:#1c2e3c'> · </span>"
+        model_html = (
+            f"<span style='{_k}'>model:</span> "
+            f"<span style='color:#6090b0'>{self.cfg.defaults.model}</span>"
         )
-        format_html = f"<span style='color:#ffa657'>{self.cfg.defaults.format}</span>"
-        parts = [
-            prov_model_html,
-            format_html,
-        ]
+        chat_model_html = (
+            f"<span style='{_k}'>llm:</span> "
+            f"<span style='color:#508070'>{self.cfg.defaults.chat_model}</span>"
+        )
+        format_html = (
+            f"<span style='{_k}'>audio format:</span> "
+            f"<span style='color:#906840'>{self.cfg.defaults.format}</span>"
+        )
+        info_parts = [model_html, chat_model_html, format_html]
         if self.cfg.defaults.language:
-            lang_html = f"<span style='color:#c9b4ff'>{self.cfg.defaults.language}</span>"
-            parts.append(lang_html)
-        info_core = sep.join(parts)
-        info_line = (
-            "<span style='color:#8b949e'>[svx:</span> "
-            f"{info_core} "
-            "<span style='color:#8b949e'>]</span>"
-        )
-        self._info_label = QLabel(info_line)
+            lang_html = (
+                f"<span style='{_k}'>lang:</span> "
+                f"<span style='color:#705890'>{self.cfg.defaults.language}</span>"
+            )
+            info_parts.append(lang_html)
+        self._info_label = QLabel(_sep.join(info_parts))
         self._info_label.setObjectName("info_label")
         self._info_label.setTextFormat(Qt.TextFormat.RichText)
         self._info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._info_label)
 
-        self._status_label = QLabel("Recording in progress...")
+        # Status line — hidden during recording (meters handle that feedback)
+        self._status_label = QLabel("")
+        self._status_label.setObjectName("info_label")
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._status_label)
 
@@ -801,6 +835,9 @@ class RecorderWindow(QWidget):
             self._loop_meter.set_level(loop_rms)
 
     def _on_status(self, msg: str) -> None:
+        # "Recording in progress..." is conveyed by the level meters; skip it
+        if msg == "Recording in progress...":
+            return
         self._status_label.setText(msg)
 
     def _on_done(self, text: str, raw_transcript: str, paths: object) -> None:
