@@ -14,7 +14,7 @@ The pipeline works in two stages: (1) **Transcription** — audio is converted t
 
 For instance, use a prompt like: "_Transcribe this audio precisely and remove all minor speech hesitations: "um", "uh", "er", "euh", "ben", etc._"
 
-The GUI is minimal, launches fast, and can be bound to a system hotkey. Upon stopping recording, it transcribes via the pipeline and copies the result directly to the system clipboard, enabling efficient voice-driven workflows: e.g., dictating code snippets into an IDE or prompting LLMs via audio without typing.
+The GUI is minimal, launches fast, and can be bound to a system hotkey. Upon stopping recording, it transcribes via the pipeline and copies the result directly to the system clipboard, enabling efficient voice-driven workflows: e.g., dictating code snippets into an IDE or prompting LLMs via audio without typing. Real-time segmented level meters (MIC, and LOOP when a loopback device is configured) give immediate feedback on audio signal, so you can confirm sound is being captured before committing to a recording.
 
 ## Requirements
 
@@ -96,7 +96,7 @@ To get started quickly with SuperVoxtral:
    ```
 
 3. Launch the GUI: `svx record --gui`
-   This opens the minimal GUI, starts recording immediately; click 'Transcribe' for pure transcription (no prompt) or a button for each configured prompt (e.g., 'Default', 'Mail', 'Translate') for prompted transcription using the selected prompt; --transcribe ignored with warning (results copied to clipboard).
+   This opens the minimal GUI and starts recording immediately. Real-time level meters (MIC / LOOP) confirm that audio is being captured. Click **Transcribe** for pure transcription (no prompt) or a button for each configured prompt (e.g., **Default**, **Mail**, **Translate**) for prompted transcription; results are copied to the clipboard automatically. (`--transcribe` is ignored in GUI mode with a warning.)
 
 ### macOS Shortcuts Integration
 
@@ -307,7 +307,7 @@ svx record [OPTIONS]
 - `--user-prompt-file PATH` (or `--prompt-file PATH`): Path to a markdown file with the user prompt.
 - `--transcribe`: Enable pure transcription mode (ignores prompts; uses dedicated endpoint).
 - `--outfile-prefix PREFIX`: Custom prefix for output files (default: timestamp).
-- `--gui`: Launch the GUI frontend (interactive: recording starts immediately; buttons 'Transcribe' (pure, no prompt) or 'Prompt' (with resolved prompt); respects config and other CLI options; --transcribe ignored with warning).
+- `--gui`: Launch the GUI frontend. Recording starts immediately; real-time level meters (MIC / LOOP) confirm signal. Buttons: **Transcribe** (pure transcription, no prompt) or one button per configured prompt key (e.g., **Default**). Respects config.toml and other CLI flags (e.g., `--save-all`). `--transcribe` is ignored with a warning in GUI mode.
 - `--save-all`: Override config to keep audio, transcripts, and logs for this run.
 - `--log-level LEVEL`: Set logging level (DEBUG, INFO, WARNING, ERROR; default: INFO).
 
@@ -331,6 +331,7 @@ By default in CLI, uses the 'default' prompt from config.toml [prompt.default]. 
 
 ## Changelog
 
+- 0.5.0: GUI improvements — replace decorative waveform with real-time segmented LED-style audio level meters (MIC always visible, LOOP shown when a loopback device is configured), giving immediate feedback on whether signal is present before committing to a recording; redesigned info bar now shows `model`, `llm`, `audio format` and `lang` fields explicitly (avoids confusion between the Opus audio codec and the Anthropic Opus model); added window title.
 - 0.4.2: Fix audio saturation and distortion — record at device native sample rate (typically 48 kHz) instead of 16 kHz to eliminate PortAudio resampling artifacts; switch to float32 capture pipeline to avoid int16 clipping during format conversion. Remove 0.5 averaging factor in dual recording mix (meeting use case: sources are mutually exclusive, averaging unnecessarily halves the signal level).
 - 0.4.1: Fix dual audio mix attenuation — removed unnecessary 0.5 factor that was halving mic volume when loopback was silent; `np.clip` already prevents int16 overflow. Refactored mixing logic into a `_mix_and_write` helper.
 - 0.4.0: Meeting recording support — speaker diarization (enabled by default), auto-chunking for long recordings (> 5 min) with overlap and segment deduplication, dual audio capture (mic + system loopback with configurable per-source gain). User data files now stored in platform-standard directories instead of cwd. Long recordings auto-save all files for data protection.

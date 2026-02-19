@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "supervoxtral"
-version = "0.4.2"
+version = "0.5.0"
 description = "CLI/GUI audio recorder with 2-step pipeline: transcription (Voxtral) then text transformation (LLM)."
 requires-python = ">=3.11"
 license = { text = "MIT" }

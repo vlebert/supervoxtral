@@ -514,6 +514,7 @@ class ResultDialog(QDialog):
 
         self.setWindowTitle("SuperVoxtral — Review")
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
