@@ -151,7 +151,7 @@ def record_wav(
     start_time = time.time()
 
     def audio_callback(
-        indata: np.ndarray[Any, np.dtype[np.int16]],
+        indata: np.ndarray[Any, np.dtype[np.float32]],
         frames: int,
         time_info: sd.CallbackFlags,
         status: sd.CallbackFlags,
@@ -164,7 +164,7 @@ def record_wav(
         while not writer_stop.is_set():
             try:
                 data = q.get(timeout=0.1)
-                wav_file.write(data)
+                wav_file.write(np.clip(data, -1.0, 1.0))
             except queue.Empty:
                 continue
             except Exception as e:
@@ -184,7 +184,7 @@ def record_wav(
         with sd.InputStream(
             samplerate=samplerate,
             channels=channels,
-            dtype="int16",
+            dtype="float32",
             device=device,
             callback=audio_callback,
         ):
