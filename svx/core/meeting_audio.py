@@ -88,6 +88,18 @@ def record_dual_wav(
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Use the mic device's native sample rate to avoid PortAudio resampling artifacts
+    try:
+        dev_info = sd.query_devices(mic_device, "input")
+        native_rate = int(dev_info["default_samplerate"])
+        if native_rate > 0:
+            logging.info(
+                "Using device native sample rate %d Hz (requested %d Hz)", native_rate, samplerate
+            )
+            samplerate = native_rate
+    except Exception:
+        logging.debug("Could not query device native sample rate, using %d Hz", samplerate)
+
     # Raw sample queues — callbacks push float32 arrays in [-1.0, 1.0]
     mic_q: queue.Queue[np.ndarray[Any, np.dtype[np.float32]]] = queue.Queue()
     loop_q: queue.Queue[np.ndarray[Any, np.dtype[np.float32]]] = queue.Queue()
