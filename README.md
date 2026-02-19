@@ -16,6 +16,8 @@ For instance, use a prompt like: "_Transcribe this audio precisely and remove al
 
 The GUI is minimal, launches fast, and can be bound to a system hotkey. Upon stopping recording, it transcribes via the pipeline and copies the result directly to the system clipboard, enabling efficient voice-driven workflows: e.g., dictating code snippets into an IDE or prompting LLMs via audio without typing. Real-time segmented level meters (MIC, and LOOP when a loopback device is configured) give immediate feedback on audio signal, so you can confirm sound is being captured before committing to a recording.
 
+![Supervoxtral](supervoxtral-review-mode.png)
+
 ## Requirements
 
 - Python 3.11+
