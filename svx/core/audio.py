@@ -146,12 +146,24 @@ def record_wav(
     if samplerate <= 0:
         raise ValueError("samplerate must be > 0")
 
+    # Use the device's native sample rate to avoid PortAudio resampling artifacts
+    try:
+        dev_info = sd.query_devices(device, "input")
+        native_rate = int(dev_info["default_samplerate"])
+        if native_rate > 0:
+            logging.info(
+                "Using device native sample rate %d Hz (requested %d Hz)", native_rate, samplerate
+            )
+            samplerate = native_rate
+    except Exception:
+        logging.debug("Could not query device native sample rate, using %d Hz", samplerate)
+
     q: queue.Queue = queue.Queue()
     writer_stop = Event()
     start_time = time.time()
 
     def audio_callback(
-        indata: np.ndarray[Any, np.dtype[np.int16]],
+        indata: np.ndarray[Any, np.dtype[np.float32]],
         frames: int,
         time_info: sd.CallbackFlags,
         status: sd.CallbackFlags,
@@ -164,7 +176,7 @@ def record_wav(
         while not writer_stop.is_set():
             try:
                 data = q.get(timeout=0.1)
-                wav_file.write(data)
+                wav_file.write(np.clip(data, -1.0, 1.0))
             except queue.Empty:
                 continue
             except Exception as e:
@@ -184,7 +196,7 @@ def record_wav(
         with sd.InputStream(
             samplerate=samplerate,
             channels=channels,
-            dtype="int16",
+            dtype="float32",
             device=device,
             callback=audio_callback,
         ):
