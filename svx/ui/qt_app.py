@@ -226,10 +226,9 @@ class LevelMeterWidget(QWidget):
     def paintEvent(self, event) -> None:  # type: ignore[override]
         from PySide6.QtGui import QColor, QPainter
 
-        w = self.width()
         h = self.height()
         bar_x = self._LABEL_W + 4
-        bar_w = max(1, w - bar_x - 4)
+        bar_w = max(1, self.width() - bar_x - 4)
         bar_y = (h - self._TRACK_H) // 2
 
         seg_w = max(1, (bar_w - (self._NUM_SEGS - 1) * self._SEG_GAP) // self._NUM_SEGS)
@@ -509,8 +508,6 @@ class ResultDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._text = text
-        self._raw = raw_transcript
         self._has_transformation = text.strip() != raw_transcript.strip()
         self._drag_active = False
         self._drag_pos = QPoint(0, 0)
@@ -671,8 +668,6 @@ class RecorderWindow(QWidget):
         )
         self._thread = threading.Thread(target=self._worker.run, daemon=True)
 
-        # Environment and prompt files
-
         # Window basics
         self.setObjectName("recorder_window")
         self.setWindowTitle("SuperVoxtral")
@@ -812,9 +807,6 @@ class RecorderWindow(QWidget):
             app.setFont(get_fixed_font(11))
             existing = app.styleSheet() or ""
             app.setStyleSheet(existing + DARK_MONO_STYLESHEET)
-        else:
-            # If no app exists yet, we'll rely on run_gui to set the stylesheet.
-            pass
 
         # Start recording and level monitoring simultaneously
         self._thread.start()
@@ -943,11 +935,9 @@ def run_gui(
     outfile_prefix: str | None = None,
     log_level: str = "INFO",
 ) -> None:
+    """Launch the PySide6 app with the minimal recorder window."""
     if cfg is None:
         cfg = Config.load(log_level=log_level)
-    """
-    Launch the PySide6 app with the minimal recorder window.
-    """
     config.setup_environment(log_level=log_level)
 
     app = QApplication.instance() or QApplication([])
