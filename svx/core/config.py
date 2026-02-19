@@ -1,11 +1,9 @@
 """
 Core configuration utilities for SuperVoxtral.
 
-
-- Resolves a per-user configuration directory (cross-platform).
-
-- Exposes project path constants (ROOT_DIR, RECORDINGS_DIR, TRANSCRIPTS_DIR, LOGS_DIR)
-  as well as user-scoped paths (USER_CONFIG_DIR, USER_PROMPT_DIR).
+- Resolves per-user configuration and data directories (cross-platform).
+- Exposes user-scoped path constants (USER_DATA_DIR, RECORDINGS_DIR, TRANSCRIPTS_DIR, LOGS_DIR)
+  as well as config paths (USER_CONFIG_DIR, USER_PROMPT_DIR).
 - Configures logging and ensures required directories exist.
 
 Design:
@@ -14,9 +12,12 @@ Design:
   - macOS: ~/Library/Application Support/SuperVoxtral
   - Windows: %APPDATA%/SuperVoxtral
 
-- User config file: config.toml (TOML). For Python 3.11+, `tomllib` is used;
-  for 3.10, a fallback to `tomli` would be expected
-  (the project should add `tomli` to dependencies for 3.10).
+- User data (recordings, transcripts, logs) lives in a platform-standard data location:
+  - Linux: ${XDG_DATA_HOME:-~/.local/share}/supervoxtral
+  - macOS: ~/Library/Application Support/SuperVoxtral (same as config)
+  - Windows: %APPDATA%/SuperVoxtral (same as config)
+
+- User config file: config.toml (TOML). Python >= 3.11 required (stdlib tomllib).
 
 This module aims to remain small and import-safe.
 """
@@ -30,14 +31,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Final
 
-# Use stdlib tomllib (Python >= 3.11 required by project)
 import tomllib
-
-# Project paths (relative to current working directory)
-ROOT_DIR: Final[Path] = Path.cwd()
-RECORDINGS_DIR: Final[Path] = ROOT_DIR / "recordings"
-TRANSCRIPTS_DIR: Final[Path] = ROOT_DIR / "transcripts"
-LOGS_DIR: Final[Path] = ROOT_DIR / "logs"
 
 
 # User config (platform standard)
@@ -69,6 +63,38 @@ def get_user_config_dir() -> Path:
 USER_CONFIG_DIR: Final[Path] = get_user_config_dir()
 USER_PROMPT_DIR: Final[Path] = USER_CONFIG_DIR / "prompt"
 USER_CONFIG_FILE: Final[Path] = USER_CONFIG_DIR / "config.toml"
+
+
+def get_user_data_dir() -> Path:
+    """
+    Resolve the user data directory for SuperVoxtral in a cross-platform way.
+
+    Used for recordings, transcripts, and logs.
+
+    Returns a Path that may not yet exist.
+    """
+    # Windows: %APPDATA% (same as config)
+    if sys.platform.startswith("win"):
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return Path(appdata) / "SuperVoxtral"
+        return Path.home() / "AppData" / "Roaming" / "SuperVoxtral"
+
+    # macOS: ~/Library/Application Support/SuperVoxtral (same as config)
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "SuperVoxtral"
+
+    # Linux/Unix: XDG_DATA_HOME or ~/.local/share
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        return Path(xdg) / "supervoxtral"
+    return Path.home() / ".local" / "share" / "supervoxtral"
+
+
+USER_DATA_DIR: Final[Path] = get_user_data_dir()
+RECORDINGS_DIR: Final[Path] = USER_DATA_DIR / "recordings"
+TRANSCRIPTS_DIR: Final[Path] = USER_DATA_DIR / "transcripts"
+LOGS_DIR: Final[Path] = USER_DATA_DIR / "logs"
 
 
 def _get_log_level(level: str) -> int:
@@ -231,6 +257,21 @@ def init_user_config(force: bool = False, prompt_file: Path | None = None) -> Pa
         "# (proper nouns, technical terms, brand names, etc.)\n"
         '# context_bias = ["SuperVoxtral", "Mistral AI", "Voxtral"]\n'
         "context_bias = []\n\n"
+        "# Speaker diarization (identify speakers in transcription)\n"
+        "diarize = true\n\n"
+        "# Auto-chunking for long recordings (seconds)\n"
+        "# Recordings longer than chunk_duration are split into overlapping chunks\n"
+        "chunk_duration = 300   # 5 minutes\n"
+        "chunk_overlap = 30     # 30s overlap between chunks\n\n"
+        "# Loopback device for dual audio capture (mic + system audio)\n\n"
+        '# Set to your loopback device name (e.g. "BlackHole 2ch") to capture both\n'
+        "# Leave commented out to record microphone only\n"
+        '# loopback_device = "BlackHole 2ch"\n\n'
+        "# Gain adjustment for dual-device recording (mic + loopback)\n"
+        "# Values are multipliers: 1.0 = no change, 0.5 = half volume, 2.0 = double volume\n"
+        "# Adjust these if one source is too loud or too quiet in your recordings\n"
+        "mic_gain = 1.0\n"
+        "loopback_gain = 1.0\n\n"
         "# Audio recording parameters\n"
         "rate = 16000\n"
         "channels = 1\n"
@@ -290,6 +331,12 @@ class DefaultsConfig:
     copy: bool = True
     log_level: str = "INFO"
     outfile_prefix: str | None = None
+    diarize: bool = True
+    chunk_duration: int = 300
+    chunk_overlap: int = 30
+    loopback_device: str | None = None
+    mic_gain: float = 1.0
+    loopback_gain: float = 1.0
 
 
 @dataclass
@@ -338,6 +385,12 @@ class Config:
             "copy": bool(user_defaults_raw.get("copy", True)),
             "log_level": str(user_defaults_raw.get("log_level", log_level)),
             "outfile_prefix": user_defaults_raw.get("outfile_prefix"),
+            "diarize": bool(user_defaults_raw.get("diarize", True)),
+            "chunk_duration": int(user_defaults_raw.get("chunk_duration", 300)),
+            "chunk_overlap": int(user_defaults_raw.get("chunk_overlap", 30)),
+            "loopback_device": user_defaults_raw.get("loopback_device"),
+            "mic_gain": float(user_defaults_raw.get("mic_gain", 1.0)),
+            "loopback_gain": float(user_defaults_raw.get("loopback_gain", 1.0)),
         }
         channels = defaults_data["channels"]
         if channels not in (1, 2):
@@ -351,6 +404,20 @@ class Config:
         context_bias = defaults_data["context_bias"]
         if len(context_bias) > 100:
             raise ValueError("context_bias cannot contain more than 100 items (Mistral API limit)")
+        chunk_duration = defaults_data["chunk_duration"]
+        if not (60 <= chunk_duration <= 1800):
+            raise ValueError("chunk_duration must be between 60 and 1800 seconds")
+        chunk_overlap = defaults_data["chunk_overlap"]
+        if not (0 <= chunk_overlap <= 120):
+            raise ValueError("chunk_overlap must be between 0 and 120 seconds")
+        if chunk_overlap >= chunk_duration:
+            raise ValueError("chunk_overlap must be less than chunk_duration")
+        mic_gain = defaults_data["mic_gain"]
+        if not (0.0 <= mic_gain <= 10.0):
+            raise ValueError("mic_gain must be between 0.0 and 10.0")
+        loopback_gain = defaults_data["loopback_gain"]
+        if not (0.0 <= loopback_gain <= 10.0):
+            raise ValueError("loopback_gain must be between 0.0 and 10.0")
         defaults = DefaultsConfig(**defaults_data)
         # Conditional output directories
         if defaults.keep_audio_files:
@@ -434,7 +501,7 @@ class Config:
 
 
 __all__ = [
-    "ROOT_DIR",
+    "USER_DATA_DIR",
     "RECORDINGS_DIR",
     "TRANSCRIPTS_DIR",
     "LOGS_DIR",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import tempfile
 import threading
 from collections.abc import Callable
@@ -8,12 +9,17 @@ from logging import FileHandler
 from pathlib import Path
 from typing import Any
 
+import soundfile as sf
+
 import svx.core.config as config
 from svx.core.audio import convert_audio, record_wav, timestamp
+from svx.core.chunking import merge_segments, merge_texts, split_wav
 from svx.core.clipboard import copy_to_clipboard
 from svx.core.config import Config
+from svx.core.formatting import format_diarized_transcript
 from svx.core.storage import save_text_file, save_transcript
 from svx.providers import get_provider
+from svx.providers.base import Provider, TranscriptionResult, TranscriptionSegment
 
 
 class RecordingPipeline:
@@ -23,12 +29,15 @@ class RecordingPipeline:
 
     Pipeline steps:
     1. Transcription: audio -> text via dedicated transcription endpoint (always)
+       - Supports diarization (speaker identification)
+       - Auto-chunks long recordings (> chunk_duration) with overlap
     2. Transformation: text + prompt -> text via text-based LLM (when a prompt is provided)
 
     Handles temporary files when not keeping audio.
     Supports runtime overrides like save_all for keeping all files and adding log handlers.
     Optional progress_callback for status updates (e.g., for GUI).
     Supports transcribe_mode for pure transcription without prompt (step 1 only).
+    Supports dual-device recording (mic + loopback) when loopback_device is configured.
     """
 
     def __init__(
@@ -48,6 +57,7 @@ class RecordingPipeline:
         self.outfile_prefix = outfile_prefix
         self.progress_callback = progress_callback
         self.transcribe_mode = transcribe_mode
+        self._chunk_dir: Path | None = None  # temp dir for chunk files
 
     def _status(self, msg: str) -> None:
         """Emit status update via callback if provided."""
@@ -59,20 +69,18 @@ class RecordingPipeline:
         """
         Record audio and return wav_path, duration.
 
+        Uses dual-device recording if loopback_device is configured.
+
         Returns:
             tuple[Path, float]: wav_path, duration.
         """
-        # Resolve parameters
-        _provider = self.cfg.defaults.provider
-        audio_format = self.cfg.defaults.format
-        model = self.cfg.defaults.model
-        _original_model = model
-        _language = self.cfg.defaults.language
         rate = self.cfg.defaults.rate
         channels = self.cfg.defaults.channels
         device = self.cfg.defaults.device
+        audio_format = self.cfg.defaults.format
         base = self.outfile_prefix or f"rec_{timestamp()}"
         keep_audio = self.save_all or self.cfg.defaults.keep_audio_files
+        loopback_device = self.cfg.defaults.loopback_device
 
         # Validation (fail fast)
         if channels not in (1, 2):
@@ -84,20 +92,35 @@ class RecordingPipeline:
 
         stop_for_recording = stop_event or threading.Event()
 
-        self._status("Recording...")
+        # Determine output path
         if keep_audio:
             self.cfg.recordings_dir.mkdir(parents=True, exist_ok=True)
             wav_path = self.cfg.recordings_dir / f"{base}.wav"
-            duration = record_wav(
+        else:
+            wav_path = Path(tempfile.mktemp(suffix=".wav"))
+
+        # Dual-device or single-device recording
+        if loopback_device:
+            from svx.core.meeting_audio import find_loopback_device, record_dual_wav
+
+            self._status("Recording (dual: mic + loopback)...")
+            loop_idx = find_loopback_device(loopback_device)
+            if loop_idx is None:
+                raise ValueError(
+                    f"Loopback device '{loopback_device}' not found. "
+                    "Check your audio configuration."
+                )
+            duration = record_dual_wav(
                 wav_path,
+                mic_device=device,
+                loopback_device=loop_idx,
                 samplerate=rate,
-                channels=channels,
-                device=device,
                 stop_event=stop_for_recording,
+                mic_gain=self.cfg.defaults.mic_gain,
+                loopback_gain=self.cfg.defaults.loopback_gain,
             )
         else:
-            # Use mktemp for temp wav_path
-            wav_path = Path(tempfile.mktemp(suffix=".wav"))
+            self._status("Recording...")
             duration = record_wav(
                 wav_path,
                 samplerate=rate,
@@ -119,7 +142,10 @@ class RecordingPipeline:
         self.cfg.defaults.keep_transcript_files = True
         self.cfg.defaults.keep_log_files = True
 
-        # Ensure directories
+        self._ensure_output_dirs()
+
+    def _ensure_output_dirs(self) -> None:
+        """Create output directories and add file logging if needed."""
         config.RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
         config.TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
         config.LOGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -137,6 +163,98 @@ class RecordingPipeline:
             root_logger.addHandler(file_handler)
             logging.info("File logging enabled for this run")
 
+    def _activate_save_all_for_long_recording(self, duration: float) -> None:
+        """Auto-activate save_all for long recordings to protect against data loss."""
+        chunk_duration = self.cfg.defaults.chunk_duration
+        if duration > chunk_duration and not self.save_all:
+            logging.info(
+                "Long recording (%.1fs > %ds): auto-activating save_all for data protection",
+                duration,
+                chunk_duration,
+            )
+            self.save_all = True
+            self.cfg.defaults.keep_audio_files = True
+            self.cfg.defaults.keep_transcript_files = True
+            self.cfg.defaults.keep_log_files = True
+            self._ensure_output_dirs()
+
+    def _transcribe_single(
+        self,
+        audio_path: Path,
+        provider_name: str,
+        model: str,
+        language: str | None,
+        diarize: bool,
+        prov: Provider | None = None,
+    ) -> TranscriptionResult:
+        """Transcribe a single audio file. Reuses `prov` if given."""
+        if prov is None:
+            prov = get_provider(provider_name, cfg=self.cfg)
+        return prov.transcribe(
+            audio_path,
+            model=model,
+            language=language,
+            diarize=diarize,
+            timestamp_granularities=["segment"] if diarize else None,
+        )
+
+    def _transcribe_chunked(
+        self,
+        audio_path: Path,
+        provider_name: str,
+        model: str,
+        language: str | None,
+        diarize: bool,
+        base: str,
+    ) -> TranscriptionResult:
+        """Split audio into chunks, transcribe each, and merge results."""
+        chunk_duration = self.cfg.defaults.chunk_duration
+        chunk_overlap = self.cfg.defaults.chunk_overlap
+        keep_transcript = self.save_all or self.cfg.defaults.keep_transcript_files
+
+        self._status(f"Splitting audio into {chunk_duration}s chunks...")
+        chunks = split_wav(audio_path, chunk_duration=chunk_duration, overlap=chunk_overlap)
+        self._chunk_dir = chunks[0].path.parent if chunks and chunks[0].path != audio_path else None
+
+        prov = get_provider(provider_name, cfg=self.cfg)
+
+        all_segments: list[list[TranscriptionSegment]] = []
+        all_texts: list[str] = []
+        all_raws: list[dict[str, Any]] = []
+
+        for chunk in chunks:
+            self._status(
+                f"Transcribing chunk {chunk.index + 1}/{len(chunks)} "
+                f"({chunk.start_seconds:.0f}s - {chunk.end_seconds:.0f}s)..."
+            )
+            result = self._transcribe_single(
+                chunk.path, provider_name, model, language, diarize, prov=prov
+            )
+            all_texts.append(result["text"])
+            all_raws.append(result["raw"])
+            if "segments" in result:
+                all_segments.append(result["segments"])
+
+            # Save intermediate transcript for resilience
+            if keep_transcript:
+                self.cfg.transcripts_dir.mkdir(parents=True, exist_ok=True)
+                save_text_file(
+                    self.cfg.transcripts_dir / f"{base}_chunk{chunk.index:03d}.txt",
+                    result["text"],
+                )
+
+        # Merge results
+        merged_raw: dict[str, Any] = {"chunks": all_raws}
+        if all_segments and len(all_segments) == len(chunks):
+            merged_segs = merge_segments(chunks, all_segments)
+            merged_text = merge_texts(chunks, all_texts, chunk_overlap)
+            merged_result = TranscriptionResult(text=merged_text, raw=merged_raw)
+            merged_result["segments"] = merged_segs
+            return merged_result
+        else:
+            merged_text = merge_texts(chunks, all_texts, chunk_overlap)
+            return TranscriptionResult(text=merged_text, raw=merged_raw)
+
     def process(
         self, wav_path: Path, duration: float, transcribe_mode: bool, user_prompt: str | None = None
     ) -> dict[str, Any]:
@@ -145,6 +263,8 @@ class RecordingPipeline:
 
         Pipeline:
         1. Transcription: audio -> text via dedicated endpoint (always)
+           - With diarization if enabled
+           - With auto-chunking if recording exceeds chunk_duration
         2. Transformation: text + prompt -> text via LLM (when prompt is provided)
 
         Args:
@@ -162,6 +282,9 @@ class RecordingPipeline:
         audio_format = self.cfg.defaults.format
         model = self.cfg.defaults.model
         language = self.cfg.defaults.language
+        diarize = self.cfg.defaults.diarize
+        chunk_duration = self.cfg.defaults.chunk_duration
+
         if wav_path.stem.endswith(".wav"):
             base = wav_path.stem.replace(".wav", "")
         else:
@@ -186,27 +309,50 @@ class RecordingPipeline:
 
         # Convert if needed
         to_send_path = wav_path
-        _converted = False
         if audio_format in {"mp3", "opus"}:
             self._status("Converting...")
             to_send_path = convert_audio(wav_path, audio_format)
             logging.info("Converted %s -> %s", wav_path, to_send_path)
             paths["converted"] = to_send_path
-            _converted = True
 
-        # Step 1: Transcription (always)
-        self._status("Transcribing...")
-        prov = get_provider(provider, cfg=self.cfg)
-        result = prov.transcribe(to_send_path, model=model, language=language)
-        raw_transcript = result["text"]
+        # Get actual audio duration from file (fall back to wall-clock duration)
+        audio_duration = self._get_audio_duration(to_send_path, fallback=duration)
+
+        # Auto-activate save_all for long recordings (uses same duration as chunking)
+        self._activate_save_all_for_long_recording(audio_duration)
+        # Refresh keep_transcript after potential auto-activation
+        keep_transcript = self.save_all or self.cfg.defaults.keep_transcript_files
+
+        # Step 1: Transcription (with optional chunking and diarization)
+        if audio_duration > chunk_duration:
+            self._status(
+                f"Long recording ({audio_duration:.0f}s > {chunk_duration}s): chunking enabled."
+            )
+            result = self._transcribe_chunked(
+                to_send_path, provider, model, language, diarize, base
+            )
+        else:
+            self._status("Transcribing...")
+            result = self._transcribe_single(to_send_path, provider, model, language, diarize)
+
+        # Format output text
+        raw_transcript: str
+        if diarize and "segments" in result and result["segments"]:
+            raw_transcript = format_diarized_transcript(result["segments"])
+        else:
+            raw_transcript = result["text"]
 
         # Step 2: Transformation (if prompt)
         if not transcribe_mode and final_user_prompt:
             self._status("Applying prompt...")
             chat_model = self.cfg.defaults.chat_model
+            prov = get_provider(provider, cfg=self.cfg)
             chat_result = prov.chat(raw_transcript, final_user_prompt, model=chat_model)
             text = chat_result["text"]
-            raw = {"transcription": result["raw"], "transformation": chat_result["raw"]}
+            raw: dict[str, Any] = {
+                "transcription": result["raw"],
+                "transformation": chat_result["raw"],
+            }
         else:
             text = raw_transcript
             raw = result["raw"]
@@ -246,6 +392,19 @@ class RecordingPipeline:
             "paths": paths,
         }
 
+    def _get_audio_duration(self, audio_path: Path, fallback: float = 0.0) -> float:
+        """Get audio duration in seconds from file metadata, with fallback."""
+        try:
+            info = sf.info(str(audio_path))
+            return info.frames / info.samplerate
+        except Exception:
+            logging.warning(
+                "Could not read audio duration from %s, using fallback %.1fs",
+                audio_path,
+                fallback,
+            )
+            return fallback
+
     def clean(self, wav_path: Path, paths: dict[str, Path | None], keep_audio: bool) -> None:
         """
         Clean up temporary files.
@@ -263,6 +422,12 @@ class RecordingPipeline:
             if paths["converted"].exists():
                 paths["converted"].unlink()
                 logging.info("Deleted temp converted: %s", paths["converted"])
+
+        # Clean up chunk temp directory
+        if self._chunk_dir and self._chunk_dir.exists():
+            shutil.rmtree(self._chunk_dir, ignore_errors=True)
+            logging.info("Deleted temp chunk dir: %s", self._chunk_dir)
+            self._chunk_dir = None
 
         self._status("Cleanup completed.")
 

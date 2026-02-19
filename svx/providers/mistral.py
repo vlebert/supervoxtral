@@ -20,7 +20,7 @@ from typing import Any, cast
 
 from svx.core.config import Config, ProviderConfig
 
-from .base import Provider, ProviderError, TranscriptionResult
+from .base import Provider, ProviderError, TranscriptionResult, TranscriptionSegment
 
 __all__ = ["MistralProvider"]
 
@@ -99,6 +99,9 @@ class MistralProvider(Provider):
         audio_path: Path,
         model: str | None = "voxtral-mini-latest",
         language: str | None = None,
+        *,
+        diarize: bool = False,
+        timestamp_granularities: list[str] | None = None,
     ) -> TranscriptionResult:
         """
         Transcribe audio using Mistral's dedicated transcription endpoint.
@@ -107,9 +110,11 @@ class MistralProvider(Provider):
             audio_path: Path to wav/mp3/opus file to send.
             model: Voxtral model identifier (default: "voxtral-mini-latest").
             language: Optional language hint for transcription.
+            diarize: Whether to enable speaker diarization.
+            timestamp_granularities: Timestamp detail level (e.g. ["segment"]).
 
         Returns:
-            TranscriptionResult: {"text": text, "raw": raw_dict}
+            TranscriptionResult: {"text": text, "raw": raw_dict, "segments": [...]}
 
         Raises:
             ProviderError: for expected configuration/import errors.
@@ -127,13 +132,15 @@ class MistralProvider(Provider):
         client = Mistral(api_key=self.api_key)
 
         model_name = model or "voxtral-mini-latest"
+        granularities = timestamp_granularities or (["segment"] if diarize else None)
         logging.info(
             "Calling Mistral transcription endpoint model=%s with audio=%s (%s),"
-            " language=%s, context_bias=%d items",
+            " language=%s, diarize=%s, context_bias=%d items",
             model_name,
             Path(audio_path).name,
             Path(audio_path).suffix,
             language or "auto",
+            diarize,
             len(self.context_bias),
         )
         with open(audio_path, "rb") as f:
@@ -142,11 +149,31 @@ class MistralProvider(Provider):
                 file={"content": f, "file_name": Path(audio_path).name},
                 language=language,
                 context_bias=self.context_bias if self.context_bias else None,
+                diarize=diarize,
+                timestamp_granularities=cast(Any, granularities),
             )
         text = resp.text
         raw = _normalize_raw_response(resp)
 
-        return TranscriptionResult(text=text, raw=raw)
+        result = TranscriptionResult(text=text, raw=raw)
+
+        # Parse segments when diarization is enabled and response contains them
+        if diarize and hasattr(resp, "segments") and resp.segments:
+            segments: list[TranscriptionSegment] = []
+            for seg in resp.segments:
+                segments.append(
+                    TranscriptionSegment(
+                        text=getattr(seg, "text", ""),
+                        start=float(getattr(seg, "start", 0.0)),
+                        end=float(getattr(seg, "end", 0.0)),
+                        speaker_id=getattr(seg, "speaker_id", None),
+                        score=getattr(seg, "score", None),
+                    )
+                )
+            result["segments"] = segments
+            logging.info("Parsed %d diarized segments", len(segments))
+
+        return result
 
     def chat(
         self,
