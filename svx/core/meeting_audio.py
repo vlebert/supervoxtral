@@ -149,7 +149,7 @@ def record_dual_wav(
         """Mix overlapping samples from both carries, write to file, return remainders."""
         mix_len = min(len(mic_carry), len(loop_carry))
         if mix_len > 0:
-            mixed = (mic_carry[:mix_len] * mic_gain + loop_carry[:mix_len] * loopback_gain) * 0.5
+            mixed = mic_carry[:mix_len] * mic_gain + loop_carry[:mix_len] * loopback_gain
             wav_file.write(np.clip(mixed, -1.0, 1.0))
             mic_carry = mic_carry[mix_len:]
             loop_carry = loop_carry[mix_len:]
