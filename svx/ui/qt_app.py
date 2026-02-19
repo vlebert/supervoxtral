@@ -18,18 +18,23 @@ UI changes in this file:
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QPoint, Qt, QTimer, Signal
+from PySide6.QtCore import QObject, QPoint, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QFont, QFontDatabase, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
+    QDialog,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
+    QSplitter,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -41,6 +46,9 @@ from svx.core.prompt import resolve_user_prompt
 
 __all__ = ["RecorderWindow", "run_gui"]
 
+_SETTINGS_ORG = "supervoxtral"
+_SETTINGS_APP = "ui"
+_KEY_REVIEW_MODE = "review_mode"
 
 # Simple dark monospace stylesheet
 DARK_MONO_STYLESHEET = """
@@ -99,6 +107,44 @@ QWidget#recorder_window {
     border: 1px solid #203040;
     border-radius: 8px;
 }
+
+QCheckBox {
+    color: #9fb8e6;
+    spacing: 6px;
+    padding: 2px 6px;
+}
+QCheckBox::indicator {
+    width: 13px; height: 13px;
+    border: 1px solid #374151;
+    border-radius: 2px;
+    background-color: #161b22;
+}
+QCheckBox::indicator:checked {
+    background-color: #1e40af;
+    border-color: #1d4ed8;
+}
+QDialog {
+    background-color: #0f1113;
+    border: 1px solid #203040;
+    border-radius: 4px;
+}
+QTextEdit {
+    background-color: #161b22;
+    color: #e6eef3;
+    border: 1px solid #30363d;
+    border-radius: 2px;
+    padding: 4px;
+    selection-background-color: #1e40af;
+}
+QSplitter::handle {
+    background-color: #203040;
+    width: 3px;
+}
+QLabel#panel_header {
+    color: #8b949e;
+    font-size: 9pt;
+    padding: 2px 0px;
+}
 """
 
 
@@ -112,88 +158,195 @@ def get_fixed_font(point_size: int = 11) -> QFont:
     return f
 
 
-class WaveformWidget(QWidget):
+class LevelMeterWidget(QWidget):
     """
-    Simple autonomous waveform-like widget.
-    This widget does not read audio; it animates a smooth sinusoidal/breathing
-    waveform to indicate recording activity. It is lightweight and self-contained.
+    Compact horizontal audio level meter.
+
+    Shows a gradient bar (green→yellow→red) driven by RMS audio level,
+    with a white peak-hold marker that decays slowly.
     """
 
-    def __init__(self, parent: QWidget | None = None, height: int = 64) -> None:
+    _LABEL_W = 44
+    _TRACK_H = 10
+
+    def __init__(self, label: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setMinimumHeight(height)
-        self.setMaximumHeight(height)
-        self.phase: float = 0.0
-        self.amp: float = 0.18  # base amplitude (increased for stronger motion)
-        self._target_amp: float = 0.12
-        self._tick_timer = QTimer(self)
-        self._tick_timer.setInterval(16)  # ~60 FPS
-        self._tick_timer.timeout.connect(self._on_tick)
-        self._tick_timer.start()
-        # lazily import time to avoid top-level dependency issues
-        import time as _time
+        self._label = label
+        self._display_level: float = 0.0  # 0..1, smoothed
+        self._peak: float = 0.0  # 0..1, peak hold
+        self.setMinimumHeight(24)
+        self.setMaximumHeight(24)
+        self._decay_timer = QTimer(self)
+        self._decay_timer.setInterval(80)
+        self._decay_timer.timeout.connect(self._decay)
+        self._decay_timer.start()
 
-        self._last_time = _time.time()
-
-    def _on_tick(self) -> None:
-        # advance phase and animate a subtle breathing amplitude
-        import math as _math
-        import time as _time
-
-        now = _time.time()
-        dt = max(0.0, now - self._last_time)
-        self._last_time = now
-        self.phase += 10.0 * dt  # speed factor (increased for faster motion)
-
-        # simpler breathing target using a sine on phase
-        # increase breathing depth and slightly faster breathing frequency
-        self._target_amp = 0.12 + 0.12 * (0.5 + 0.5 * _math.sin(self.phase * 0.35))
-
-        # simple lerp towards target amplitude
-        lerp_alpha = 0.06
-        self.amp = (1.0 - lerp_alpha) * self.amp + lerp_alpha * self._target_amp
+    def set_level(self, rms: float) -> None:
+        """Update the meter with a new RMS value (0.0 .. 1.0)."""
+        level = 0.0
+        if rms > 1e-5:
+            # Map [-50 dB, 0 dB] → [0, 1]  (log scale feels natural for audio)
+            level = max(0.0, min(1.0, (20 * math.log10(rms) + 50) / 50))
+        # Fast attack: jump up immediately; slow release handled by _decay
+        if level > self._display_level:
+            self._display_level = level
+        if self._display_level > self._peak:
+            self._peak = self._display_level
         self.update()
 
-    def paintEvent(self, event) -> None:  # type: ignore[override]
-        import math as _math
+    def _decay(self) -> None:
+        changed = self._display_level > 0.0 or self._peak > 0.0
+        self._display_level = max(0.0, self._display_level * 0.82)
+        self._peak = max(0.0, self._peak - 0.018)
+        if changed:
+            self.update()
 
-        from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPen
 
         w = self.width()
         h = self.height()
-        center_y = h / 2.0
+        bar_x = self._LABEL_W + 4
+        bar_w = max(1, w - bar_x - 4)
+        bar_y = (h - self._TRACK_H) // 2
 
         p = QPainter(self)
-        # Use RenderHint enum for compatibility with type checkers
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        # background is handled by stylesheet; draw a subtle inner rect
-        bg_color = QColor(20, 24, 28, 120)
-        p.fillRect(0, 0, w, h, bg_color)
 
-        # waveform color
-        wave_color = QColor(90, 200, 255, 220)
-        pen = QPen(wave_color)
-        pen.setWidthF(2.0)
-        p.setPen(pen)
+        # Label
+        p.setPen(QColor(155, 184, 230))
+        font = p.font()
+        font.setPointSize(9)
+        p.setFont(font)
+        p.drawText(
+            0,
+            0,
+            self._LABEL_W,
+            h,
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
+            self._label,
+        )
 
-        path = QPainterPath()
-        samples = max(64, max(1, w // 3))
-        # larger visual amplitude for a more noticeable waveform
-        amplitude = (h / 1.8) * self.amp
-        # draw a sin-based waveform with phase offset for motion
-        for i in range(samples):
-            x = (i / (samples - 1)) * w if samples > 1 else 0
-            angle = (i / samples) * 4.0 * 3.14159 + self.phase
-            # combine fundamental and harmonic for a richer shape
-            y = center_y + amplitude * (
-                0.9 * (0.6 * _math.sin(angle) + 0.4 * _math.sin(2.3 * angle))
+        # Track background
+        p.fillRect(bar_x, bar_y, bar_w, self._TRACK_H, QColor(25, 32, 40))
+
+        # Level fill with green→yellow→red gradient
+        fill_w = int(bar_w * self._display_level)
+        if fill_w > 0:
+            grad = QLinearGradient(bar_x, 0, bar_x + bar_w, 0)
+            grad.setColorAt(0.0, QColor(34, 197, 94))
+            grad.setColorAt(0.65, QColor(234, 179, 8))
+            grad.setColorAt(0.85, QColor(239, 68, 68))
+            p.fillRect(bar_x, bar_y, fill_w, self._TRACK_H, QBrush(grad))
+
+        # Peak marker (white vertical tick)
+        if self._peak > 0.02:
+            peak_x = bar_x + int(bar_w * self._peak)
+            pen = QPen(QColor(255, 255, 255, 200))
+            pen.setWidthF(1.5)
+            p.setPen(pen)
+            p.drawLine(peak_x, bar_y, peak_x, bar_y + self._TRACK_H - 1)
+
+
+class AudioLevelMonitor(QObject):
+    """
+    Monitors audio input levels by opening lightweight read-only streams
+    alongside (and independent from) the recording pipeline streams.
+
+    Emits `levels(mic_rms, loop_rms)` at ~20 Hz.
+    `loop_rms` is -1.0 when no loopback device is configured.
+    """
+
+    levels = Signal(float, float)
+
+    def __init__(
+        self,
+        mic_device: int | str | None = None,
+        loopback_device: str | None = None,
+        parent: QObject | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._mic_device = mic_device
+        self._loop_device = loopback_device
+        self._mic_rms: float = 0.0
+        self._loop_rms: float = 0.0
+        self._mic_stream: object = None
+        self._loop_stream: object = None
+        self._timer = QTimer(self)
+        self._timer.setInterval(50)  # 20 Hz
+        self._timer.timeout.connect(self._emit_and_decay)
+
+    # --- audio callbacks (called from PortAudio real-time thread) ---
+
+    def _mic_cb(self, indata, frames, time_info, status) -> None:  # type: ignore[override]
+        import numpy as np
+
+        rms = float(np.sqrt(np.mean(indata**2)))
+        # Peak-hold between emit frames
+        if rms > self._mic_rms:
+            self._mic_rms = rms
+
+    def _loop_cb(self, indata, frames, time_info, status) -> None:  # type: ignore[override]
+        import numpy as np
+
+        rms = float(np.sqrt(np.mean(indata**2)))
+        if rms > self._loop_rms:
+            self._loop_rms = rms
+
+    # --- public API ---
+
+    def start(self) -> None:
+        import sounddevice as sd
+
+        try:
+            self._mic_stream = sd.InputStream(
+                device=self._mic_device,
+                channels=1,
+                dtype="float32",
+                blocksize=2048,
+                callback=self._mic_cb,
             )
-            if i == 0:
-                path.moveTo(x, y)
-            else:
-                path.lineTo(x, y)
+            self._mic_stream.start()  # type: ignore[union-attr]
+        except Exception:
+            logging.debug("AudioLevelMonitor: could not open mic monitor stream", exc_info=True)
 
-        p.drawPath(path)
+        if self._loop_device is not None:
+            try:
+                self._loop_stream = sd.InputStream(
+                    device=self._loop_device,
+                    channels=1,
+                    dtype="float32",
+                    blocksize=2048,
+                    callback=self._loop_cb,
+                )
+                self._loop_stream.start()  # type: ignore[union-attr]
+            except Exception:
+                logging.debug(
+                    "AudioLevelMonitor: could not open loopback monitor stream", exc_info=True
+                )
+
+        self._timer.start()
+
+    def stop(self) -> None:
+        self._timer.stop()
+        for stream in (self._mic_stream, self._loop_stream):
+            if stream is not None:
+                try:
+                    stream.stop()  # type: ignore[union-attr]
+                    stream.close()  # type: ignore[union-attr]
+                except Exception:
+                    pass
+        self._mic_stream = None
+        self._loop_stream = None
+        self._mic_rms = 0.0
+        self._loop_rms = 0.0
+
+    def _emit_and_decay(self) -> None:
+        loop_rms = self._loop_rms if self._loop_device is not None else -1.0
+        self.levels.emit(self._mic_rms, loop_rms)
+        # Natural decay so the meter falls during silence
+        self._mic_rms *= 0.6
+        self._loop_rms *= 0.6
 
 
 class RecorderWorker(QObject):
@@ -207,7 +360,7 @@ class RecorderWorker(QObject):
     """
 
     status = Signal(str)
-    done = Signal(str)
+    done = Signal(str, str, object)  # text, raw_transcript, paths
     error = Signal(str)
     canceled = Signal()
 
@@ -218,6 +371,7 @@ class RecorderWorker(QObject):
         user_prompt_file: Path | None = None,
         save_all: bool = False,
         outfile_prefix: str | None = None,
+        review_mode: bool = False,
     ) -> None:
         super().__init__()
         self.cfg = cfg
@@ -227,10 +381,14 @@ class RecorderWorker(QObject):
         self.outfile_prefix = outfile_prefix
         self.mode: str | None = None
         self.cancel_requested: bool = False
+        self.review_mode = review_mode
         self._stop_event = threading.Event()
 
     def set_mode(self, mode: str) -> None:
         self.mode = mode
+
+    def set_review_mode(self, value: bool) -> None:
+        self.review_mode = value
 
     def stop(self) -> None:
         """Request the recording to stop."""
@@ -306,13 +464,150 @@ class RecorderWorker(QObject):
                     # avoid breaking the flow on logging errors
                     pass
 
+            if self.review_mode:
+                self.cfg.defaults.copy = False
             result = pipeline.process(wav_path, duration, transcribe_mode, user_prompt)
             keep_audio = self.save_all or self.cfg.defaults.keep_audio_files
             pipeline.clean(wav_path, result["paths"], keep_audio)
-            self.done.emit(result["text"])
+            self.done.emit(result["text"], result["raw_transcript"], result["paths"])
         except Exception as e:
             logging.exception("Pipeline failed")
             self.error.emit(str(e))
+
+
+class ResultDialog(QDialog):
+    """
+    Dialog shown in review mode, displaying the raw transcript and optionally
+    the transformed text side-by-side with copy buttons.
+    """
+
+    def __init__(
+        self,
+        text: str,
+        raw_transcript: str,
+        paths: dict,  # type: ignore[type-arg]
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._text = text
+        self._raw = raw_transcript
+        self._has_transformation = text.strip() != raw_transcript.strip()
+        self._drag_active = False
+        self._drag_pos = QPoint(0, 0)
+
+        self.setWindowTitle("SuperVoxtral — Review")
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(8)
+
+        # Header
+        header = QLabel("Review")
+        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header.setStyleSheet("color: #cfe8ff; font-size: 12pt; padding: 2px;")
+        root.addWidget(header)
+
+        if self._has_transformation:
+            splitter = QSplitter(Qt.Orientation.Horizontal)
+
+            # Left panel — raw transcript
+            left_panel = QWidget()
+            left_layout = QVBoxLayout(left_panel)
+            left_layout.setContentsMargins(0, 0, 0, 0)
+            left_layout.setSpacing(4)
+            raw_header = QLabel("Raw Transcript")
+            raw_header.setObjectName("panel_header")
+            left_layout.addWidget(raw_header)
+            self._raw_edit = QTextEdit()
+            self._raw_edit.setReadOnly(True)
+            self._raw_edit.setPlainText(raw_transcript)
+            left_layout.addWidget(self._raw_edit)
+            copy_raw_btn = QPushButton("Copy Raw")
+            copy_raw_btn.clicked.connect(lambda: self._copy(raw_transcript, copy_raw_btn))
+            left_layout.addWidget(copy_raw_btn)
+            splitter.addWidget(left_panel)
+
+            # Right panel — transformed text
+            right_panel = QWidget()
+            right_layout = QVBoxLayout(right_panel)
+            right_layout.setContentsMargins(0, 0, 0, 0)
+            right_layout.setSpacing(4)
+            transformed_header = QLabel("Transformed")
+            transformed_header.setObjectName("panel_header")
+            right_layout.addWidget(transformed_header)
+            self._text_edit = QTextEdit()
+            self._text_edit.setReadOnly(True)
+            self._text_edit.setPlainText(text)
+            right_layout.addWidget(self._text_edit)
+            copy_text_btn = QPushButton("Copy Transformed")
+            copy_text_btn.clicked.connect(lambda: self._copy(text, copy_text_btn))
+            right_layout.addWidget(copy_text_btn)
+            splitter.addWidget(right_panel)
+
+            root.addWidget(splitter, 1)
+            self.resize(800, 540)
+        else:
+            # Single panel
+            single_header = QLabel("Transcript")
+            single_header.setObjectName("panel_header")
+            root.addWidget(single_header)
+            self._text_edit = QTextEdit()
+            self._text_edit.setReadOnly(True)
+            self._text_edit.setPlainText(text)
+            root.addWidget(self._text_edit, 1)
+            copy_btn = QPushButton("Copy Transcript")
+            copy_btn.clicked.connect(lambda: self._copy(text, copy_btn))
+            root.addWidget(copy_btn)
+            self.resize(500, 420)
+
+        # Optional file link
+        transcript_path = paths.get("transcript") or paths.get("txt")
+        if transcript_path is not None:
+            link_label = QLabel(
+                f'<a href="file:///{transcript_path}" style="color:#5ea8ff;">'
+                f"{transcript_path}</a>"
+            )
+            link_label.setOpenExternalLinks(True)
+            link_label.setTextFormat(Qt.TextFormat.RichText)
+            link_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            root.addWidget(link_label)
+
+        # Bottom bar
+        bottom = QHBoxLayout()
+        bottom.addStretch()
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        bottom.addWidget(close_btn)
+        root.addLayout(bottom)
+
+    def _copy(self, text: str, btn: QPushButton) -> None:
+        QApplication.clipboard().setText(text)
+        original = btn.text()
+        btn.setText("Copied!")
+        QTimer.singleShot(1500, lambda: btn.setText(original))
+
+    def mousePressEvent(self, event) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_active = True
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # type: ignore[override]
+        if self._drag_active and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_active = False
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
 
 
 class RecorderWindow(QWidget):
@@ -341,6 +636,10 @@ class RecorderWindow(QWidget):
         self.save_all = save_all
         self.outfile_prefix = outfile_prefix
         self.prompt_keys = sorted(self.cfg.prompt.prompts.keys())
+        self._settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
+        self._review_mode: bool = bool(
+            self._settings.value(_KEY_REVIEW_MODE, False, type=bool)
+        )
 
         # Background worker (create early for signal connections)
         self._worker = RecorderWorker(
@@ -372,11 +671,25 @@ class RecorderWindow(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(6)
 
-        # Animated waveform (autonomous, not yet linked to audio)
-        self._waveform = WaveformWidget(self, height=64)
-        layout.addWidget(self._waveform)
+        # Audio level meters (real-time RMS from separate monitoring streams)
+        self._mic_meter = LevelMeterWidget("MIC", self)
+        layout.addWidget(self._mic_meter)
+        has_loopback = bool(self.cfg.defaults.loopback_device)
+        if has_loopback:
+            self._loop_meter: LevelMeterWidget | None = LevelMeterWidget("LOOP", self)
+            layout.addWidget(self._loop_meter)
+        else:
+            self._loop_meter = None
 
-        # Minimal geek status line under waveform (colored + bullets)
+        # Audio level monitor (separate monitoring streams, independent from recording)
+        self._level_monitor = AudioLevelMonitor(
+            mic_device=None,
+            loopback_device=self.cfg.defaults.loopback_device,
+            parent=self,
+        )
+        self._level_monitor.levels.connect(self._on_levels)
+
+        # Minimal geek status line under meters (colored + bullets)
         sep = "<span style='color:#8b949e'> • </span>"
         prov_model_html = (
             f"<span style='color:#7ee787'>"
@@ -406,6 +719,16 @@ class RecorderWindow(QWidget):
         self._status_label = QLabel("Recording in progress...")
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._status_label)
+
+        self._review_checkbox = QCheckBox("Review result")
+        self._review_checkbox.setChecked(self._review_mode)
+        self._review_checkbox.toggled.connect(self._on_review_mode_changed)
+        layout.addWidget(self._review_checkbox, 0, Qt.AlignmentFlag.AlignCenter)
+        self._review_hint = QLabel()
+        self._review_hint.setObjectName("info_label")
+        self._review_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._update_review_hint()
+        layout.addWidget(self._review_hint)
 
         # Buttons layout
         button_layout = QHBoxLayout()
@@ -459,8 +782,9 @@ class RecorderWindow(QWidget):
             # If no app exists yet, we'll rely on run_gui to set the stylesheet.
             pass
 
-        # Start recording immediately
+        # Start recording and level monitoring simultaneously
         self._thread.start()
+        self._level_monitor.start()
         QApplication.beep()
 
         # Ensure proper shutdown if user closes the window directly
@@ -471,13 +795,40 @@ class RecorderWindow(QWidget):
         # Some WMs may ignore the first set; nudge it again shortly after show.
         QTimer.singleShot(50, lambda: self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True))
 
+    def _on_levels(self, mic_rms: float, loop_rms: float) -> None:
+        self._mic_meter.set_level(mic_rms)
+        if self._loop_meter is not None and loop_rms >= 0.0:
+            self._loop_meter.set_level(loop_rms)
+
     def _on_status(self, msg: str) -> None:
         self._status_label.setText(msg)
 
-    def _on_done(self, text: str) -> None:
+    def _on_done(self, text: str, raw_transcript: str, paths: object) -> None:
         self._status_label.setText("Done.")
         QApplication.beep()
-        self._close_soon()
+        if self._review_mode:
+            self.hide()
+            dialog = ResultDialog(
+                text=text,
+                raw_transcript=raw_transcript,
+                paths=paths if isinstance(paths, dict) else {},
+                parent=None,
+            )
+            dialog.exec()
+            self.close()
+        else:
+            self._close_soon()
+
+    def _on_review_mode_changed(self, checked: bool) -> None:
+        self._review_mode = checked
+        self._settings.setValue(_KEY_REVIEW_MODE, checked)
+        self._update_review_hint()
+
+    def _update_review_hint(self) -> None:
+        if self._review_mode:
+            self._review_hint.setText("→ result shown for review, copy manually")
+        else:
+            self._review_hint.setText("→ result auto-copied to clipboard, window closes")
 
     def _on_error(self, message: str) -> None:
         QApplication.beep()
@@ -491,18 +842,22 @@ class RecorderWindow(QWidget):
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         # Attempt to stop recording if the user closes the window via window controls.
+        self._level_monitor.stop()
         self._worker.cancel()
         super().closeEvent(event)
 
     def _on_mode_selected(self, mode: str) -> None:
+        self._level_monitor.stop()
         for btn in self._action_buttons:
             btn.setEnabled(False)
         self._cancel_btn.setEnabled(False)
         self._status_label.setText("Stopping and processing...")
+        self._worker.set_review_mode(self._review_mode)
         self._worker.set_mode(mode)
         self._worker.stop()
 
     def _on_cancel_clicked(self) -> None:
+        self._level_monitor.stop()
         for btn in self._action_buttons:
             btn.setEnabled(False)
         self._cancel_btn.setEnabled(False)
