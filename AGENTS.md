@@ -15,7 +15,7 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
 
 - **svx/cli.py**: Typer CLI entrypoint; orchestration only, delegates to Config and Pipeline
 - **svx/core/**:
-  - `config.py`: Config dataclasses, TOML loading, prompt resolution (supports multiple prompts via [prompt.key] sections), logging setup. `get_user_data_dir()` / `get_user_config_dir()` for platform-standard paths.
+  - `config.py`: Config dataclasses, TOML loading, prompt resolution (supports multiple prompts via [prompt.key] sections), logging setup. `get_user_data_dir()` / `get_user_config_dir()` for platform-standard paths. `keep_raw_audio` / `keep_compressed_audio` control WAV and compressed file retention independently.
   - `pipeline.py`: RecordingPipeline class - records (single or dual device), auto-chunks long recordings, transcribes with diarization, saves conditionally, copies to clipboard
   - `audio.py`: WAV recording (sounddevice), ffmpeg detection/conversion to MP3/Opus
   - `chunking.py`: Split long WAV files into overlapping chunks (`split_wav`), merge transcription segments (`merge_segments`) with crossfade deduplication, merge texts (`merge_texts`)
@@ -30,7 +30,7 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
   - `openai.py`: OpenAI Whisper implementation
   - `__init__.py`: Provider registry (get_provider)
 - **svx/ui/**:
-  - `qt_app.py`: PySide6 GUI (RecorderWindow/Worker) using Pipeline; dynamic buttons per prompt key
+  - `qt_app.py`: PySide6 GUI (RecorderWindow/Worker) using Pipeline; dynamic buttons per prompt key; persistent checkboxes for `keep_raw_audio` / `keep_compressed_audio` via QSettings (override TOML without editing it)
 
 ### Execution Flow
 
@@ -42,7 +42,7 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
    - GUI: Dynamic buttons for each [prompt.key]; "Transcribe" button bypasses prompt
    - Priority: CLI arg > config [prompt.key] > user prompt file > fallback
 5. **Pipeline Execution** (RecordingPipeline) — 2-step pipeline:
-   - record(): WAV recording via sounddevice (or dual-device via meeting_audio if `loopback_device` configured), temp file if keep_audio_files=false
+   - record(): WAV recording via sounddevice (or dual-device via meeting_audio if `loopback_device` configured), temp file if keep_raw_audio=false
    - process(): Optional ffmpeg conversion, then:
      - Auto-chunks if audio duration > `chunk_duration` (default 300s/5min): splits with `chunk_overlap` (default 30s), transcribes each chunk, merges results
      - Step 1 (Transcription): audio → text via provider.transcribe() with `diarize=True` by default (speaker identification). Segments deduplicated across chunks via crossfade-at-midpoint.

@@ -190,10 +190,9 @@ def load_user_config() -> dict[str, Any]:
     format = "mp3"
     model = "voxtral-small-latest"
     language = "fr"
-    rate = 16000
-    channels = 1
     device = ""
-    keep_audio_files = false
+    keep_raw_audio = false
+    keep_compressed_audio = false
     copy = true
     log_level = "INFO"
 
@@ -272,14 +271,13 @@ def init_user_config(force: bool = False, prompt_file: Path | None = None) -> Pa
         "# Adjust these if one source is too loud or too quiet in your recordings\n"
         "mic_gain = 1.0\n"
         "loopback_gain = 1.0\n\n"
-        "# Audio recording parameters\n"
-        "rate = 16000\n"
-        "channels = 1\n"
+        '# Audio input device (leave commented to use system default)\n'
         '#device = ""\n\n'
         "# Output persistence:\n"
-        "# - keep_audio_files: false uses temp files (no recordings/ dir),\n"
-        "#   true saves to recordings/\n"
-        "keep_audio_files = false\n"
+        "# - keep_raw_audio: true saves the raw WAV recording to recordings/\n"
+        "keep_raw_audio = false\n"
+        "# - keep_compressed_audio: true saves the compressed file (opus/mp3) to recordings/\n"
+        "keep_compressed_audio = false\n"
         "# - keep_transcript_files: false prints/copies only (no\n"
         "#   transcripts/ dir), true saves to transcripts/\n"
         "keep_transcript_files = false\n"
@@ -325,7 +323,8 @@ class DefaultsConfig:
     rate: int = 16000
     channels: int = 1
     device: str | None = None
-    keep_audio_files: bool = False
+    keep_raw_audio: bool = False
+    keep_compressed_audio: bool = False
     keep_transcript_files: bool = False
     keep_log_files: bool = False
     copy: bool = True
@@ -376,10 +375,9 @@ class Config:
             "context_bias": list(user_defaults_raw.get("context_bias", []))
             if isinstance(user_defaults_raw.get("context_bias"), list)
             else [],
-            "rate": int(user_defaults_raw.get("rate", 16000)),
-            "channels": int(user_defaults_raw.get("channels", 1)),
             "device": user_defaults_raw.get("device"),
-            "keep_audio_files": bool(user_defaults_raw.get("keep_audio_files", False)),
+            "keep_raw_audio": bool(user_defaults_raw.get("keep_raw_audio", False)),
+            "keep_compressed_audio": bool(user_defaults_raw.get("keep_compressed_audio", False)),
             "keep_transcript_files": bool(user_defaults_raw.get("keep_transcript_files", False)),
             "keep_log_files": bool(user_defaults_raw.get("keep_log_files", False)),
             "copy": bool(user_defaults_raw.get("copy", True)),
@@ -392,12 +390,6 @@ class Config:
             "mic_gain": float(user_defaults_raw.get("mic_gain", 1.0)),
             "loopback_gain": float(user_defaults_raw.get("loopback_gain", 1.0)),
         }
-        channels = defaults_data["channels"]
-        if channels not in (1, 2):
-            raise ValueError("channels must be 1 or 2")
-        rate = defaults_data["rate"]
-        if rate <= 0:
-            raise ValueError("rate must be > 0")
         format_ = defaults_data["format"]
         if format_ not in {"wav", "mp3", "opus"}:
             raise ValueError("format must be one of wav|mp3|opus")
@@ -420,7 +412,7 @@ class Config:
             raise ValueError("loopback_gain must be between 0.0 and 10.0")
         defaults = DefaultsConfig(**defaults_data)
         # Conditional output directories
-        if defaults.keep_audio_files:
+        if defaults.keep_raw_audio or defaults.keep_compressed_audio:
             RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
         if defaults.keep_transcript_files:
             TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
