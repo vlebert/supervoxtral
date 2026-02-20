@@ -190,8 +190,6 @@ def load_user_config() -> dict[str, Any]:
     format = "mp3"
     model = "voxtral-small-latest"
     language = "fr"
-    rate = 16000
-    channels = 1
     device = ""
     keep_audio_files = false
     copy = true
@@ -272,9 +270,7 @@ def init_user_config(force: bool = False, prompt_file: Path | None = None) -> Pa
         "# Adjust these if one source is too loud or too quiet in your recordings\n"
         "mic_gain = 1.0\n"
         "loopback_gain = 1.0\n\n"
-        "# Audio recording parameters\n"
-        "rate = 16000\n"
-        "channels = 1\n"
+        '# Audio input device (leave commented to use system default)\n'
         '#device = ""\n\n'
         "# Output persistence:\n"
         "# - keep_audio_files: false uses temp files (no recordings/ dir),\n"
@@ -376,8 +372,6 @@ class Config:
             "context_bias": list(user_defaults_raw.get("context_bias", []))
             if isinstance(user_defaults_raw.get("context_bias"), list)
             else [],
-            "rate": int(user_defaults_raw.get("rate", 16000)),
-            "channels": int(user_defaults_raw.get("channels", 1)),
             "device": user_defaults_raw.get("device"),
             "keep_audio_files": bool(user_defaults_raw.get("keep_audio_files", False)),
             "keep_transcript_files": bool(user_defaults_raw.get("keep_transcript_files", False)),
@@ -392,12 +386,6 @@ class Config:
             "mic_gain": float(user_defaults_raw.get("mic_gain", 1.0)),
             "loopback_gain": float(user_defaults_raw.get("loopback_gain", 1.0)),
         }
-        channels = defaults_data["channels"]
-        if channels not in (1, 2):
-            raise ValueError("channels must be 1 or 2")
-        rate = defaults_data["rate"]
-        if rate <= 0:
-            raise ValueError("rate must be > 0")
         format_ = defaults_data["format"]
         if format_ not in {"wav", "mp3", "opus"}:
             raise ValueError("format must be one of wav|mp3|opus")

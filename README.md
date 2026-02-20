@@ -249,9 +249,7 @@ chunk_overlap = 30     # 30s overlap between chunks
 # See "Capturing system audio" section for setup instructions
 # loopback_device = "BlackHole 2ch"
 
-# Audio recording parameters
-rate = 16000
-channels = 1
+# Audio input device (leave commented to use system default)
 #device = ""
 
 # Output persistence:
@@ -296,7 +294,7 @@ The CLI provides config utilities and a unified `record` entrypoint for both CLI
 
 **Zero-footprint defaults**: No directories created; outputs to console/clipboard. Use `--save-all` or set `keep_* = true` in config.toml to persist files to user data directories (e.g., `~/Library/Application Support/SuperVoxtral/` on macOS). Long recordings (> chunk_duration) automatically enable persistence for data protection.
 
-Most defaults (provider, format, model, language, rate, channels, device, keep flags, copy) come from config.toml. CLI overrides are limited to specific options.
+Most defaults (provider, format, model, language, device, keep flags, copy) come from config.toml. CLI overrides are limited to specific options.
 
 ### Record Command
 
