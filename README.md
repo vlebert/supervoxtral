@@ -333,6 +333,7 @@ By default in CLI, uses the 'default' prompt from config.toml [prompt.default]. 
 
 ## Changelog
 
+- 0.5.1: GUI refinements — level meters now show the active audio interface name; window dragging fixed on all non-interactive areas; info/checkbox/status rows left-aligned with bar start; cleaner status section.
 - 0.5.0: GUI improvements — replace decorative waveform with real-time segmented LED-style audio level meters (MIC always visible, LOOP shown when a loopback device is configured), giving immediate feedback on whether signal is present before committing to a recording; redesigned info bar now shows `model`, `llm`, `audio format` and `lang` fields explicitly (avoids confusion between the Opus audio codec and the Anthropic Opus model); added window title.
 - 0.4.2: Fix audio saturation and distortion — record at device native sample rate (typically 48 kHz) instead of 16 kHz to eliminate PortAudio resampling artifacts; switch to float32 capture pipeline to avoid int16 clipping during format conversion. Remove 0.5 averaging factor in dual recording mix (meeting use case: sources are mutually exclusive, averaging unnecessarily halves the signal level).
 - 0.4.1: Fix dual audio mix attenuation — removed unnecessary 0.5 factor that was halving mic volume when loopback was silent; `np.clip` already prevents int16 overflow. Refactored mixing logic into a `_mix_and_write` helper.
