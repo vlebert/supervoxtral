@@ -58,6 +58,7 @@ class RecordingPipeline:
         self.progress_callback = progress_callback
         self.transcribe_mode = transcribe_mode
         self._chunk_dir: Path | None = None  # temp dir for chunk files
+        self._recording_base: str | None = None  # base name set during record()
 
     def _status(self, msg: str) -> None:
         """Emit status update via callback if provided."""
@@ -79,7 +80,8 @@ class RecordingPipeline:
         device = self.cfg.defaults.device
         audio_format = self.cfg.defaults.format
         base = self.outfile_prefix or f"rec_{timestamp()}"
-        keep_audio = self.save_all or self.cfg.defaults.keep_audio_files
+        self._recording_base = base
+        keep_raw = self.save_all or self.cfg.defaults.keep_raw_audio
         loopback_device = self.cfg.defaults.loopback_device
 
         # Validation (fail fast)
@@ -93,7 +95,7 @@ class RecordingPipeline:
         stop_for_recording = stop_event or threading.Event()
 
         # Determine output path
-        if keep_audio:
+        if keep_raw:
             self.cfg.recordings_dir.mkdir(parents=True, exist_ok=True)
             wav_path = self.cfg.recordings_dir / f"{base}.wav"
         else:
@@ -138,7 +140,8 @@ class RecordingPipeline:
             return
 
         # Override config defaults
-        self.cfg.defaults.keep_audio_files = True
+        self.cfg.defaults.keep_raw_audio = True
+        self.cfg.defaults.keep_compressed_audio = True
         self.cfg.defaults.keep_transcript_files = True
         self.cfg.defaults.keep_log_files = True
 
@@ -173,7 +176,8 @@ class RecordingPipeline:
                 chunk_duration,
             )
             self.save_all = True
-            self.cfg.defaults.keep_audio_files = True
+            self.cfg.defaults.keep_raw_audio = True
+            self.cfg.defaults.keep_compressed_audio = True
             self.cfg.defaults.keep_transcript_files = True
             self.cfg.defaults.keep_log_files = True
             self._ensure_output_dirs()
@@ -285,10 +289,7 @@ class RecordingPipeline:
         diarize = self.cfg.defaults.diarize
         chunk_duration = self.cfg.defaults.chunk_duration
 
-        if wav_path.stem.endswith(".wav"):
-            base = wav_path.stem.replace(".wav", "")
-        else:
-            base = wav_path.stem
+        base = self._recording_base or wav_path.stem
         keep_transcript = self.save_all or self.cfg.defaults.keep_transcript_files
         copy_to_clip = self.cfg.defaults.copy
 
@@ -322,6 +323,17 @@ class RecordingPipeline:
         self._activate_save_all_for_long_recording(audio_duration)
         # Refresh keep_transcript after potential auto-activation
         keep_transcript = self.save_all or self.cfg.defaults.keep_transcript_files
+
+        # Move compressed file to recordings dir if keeping it
+        if audio_format in {"mp3", "opus"} and "converted" in paths:
+            keep_compressed = self.save_all or self.cfg.defaults.keep_compressed_audio
+            if keep_compressed and paths["converted"] is not None:
+                self.cfg.recordings_dir.mkdir(parents=True, exist_ok=True)
+                final = self.cfg.recordings_dir / f"{base}.{audio_format}"
+                if paths["converted"] != final:
+                    shutil.move(str(paths["converted"]), final)
+                    to_send_path = final
+                    paths["converted"] = final
 
         # Step 1: Transcription (with optional chunking and diarization)
         if audio_duration > chunk_duration:
@@ -405,23 +417,31 @@ class RecordingPipeline:
             )
             return fallback
 
-    def clean(self, wav_path: Path, paths: dict[str, Path | None], keep_audio: bool) -> None:
+    def clean(
+        self,
+        wav_path: Path,
+        paths: dict[str, Path | None],
+        keep_raw: bool,
+        keep_compressed: bool,
+    ) -> None:
         """
         Clean up temporary files.
 
         Args:
             wav_path: The original WAV path.
             paths: The paths dict from process().
-            keep_audio: Whether to keep audio files (if True, no deletion).
+            keep_raw: Whether to keep the raw WAV file.
+            keep_compressed: Whether to keep the compressed audio file (mp3/opus).
         """
-        if not keep_audio and wav_path.exists():
+        if not keep_raw and wav_path.exists():
             wav_path.unlink()
             logging.info("Deleted temp WAV: %s", wav_path)
 
-        if "converted" in paths and paths["converted"] and paths["converted"] != wav_path:
-            if paths["converted"].exists():
-                paths["converted"].unlink()
-                logging.info("Deleted temp converted: %s", paths["converted"])
+        if not keep_compressed:
+            if "converted" in paths and paths["converted"] and paths["converted"] != wav_path:
+                if paths["converted"].exists():
+                    paths["converted"].unlink()
+                    logging.info("Deleted temp converted: %s", paths["converted"])
 
         # Clean up chunk temp directory
         if self._chunk_dir and self._chunk_dir.exists():
@@ -448,7 +468,6 @@ class RecordingPipeline:
         self._setup_save_all()
 
         wav_path, duration = self.record(stop_event)
-        keep_audio = self.save_all or self.cfg.defaults.keep_audio_files
 
         if self.transcribe_mode:
             final_user_prompt = None
@@ -458,7 +477,9 @@ class RecordingPipeline:
 
         result = self.process(wav_path, duration, self.transcribe_mode, final_user_prompt)
 
-        self.clean(wav_path, result["paths"], keep_audio=keep_audio)
+        keep_raw = self.save_all or self.cfg.defaults.keep_raw_audio
+        keep_compressed = self.save_all or self.cfg.defaults.keep_compressed_audio
+        self.clean(wav_path, result["paths"], keep_raw=keep_raw, keep_compressed=keep_compressed)
 
         logging.info("Pipeline finished (%.2fs)", duration)
         return result

@@ -191,7 +191,8 @@ def load_user_config() -> dict[str, Any]:
     model = "voxtral-small-latest"
     language = "fr"
     device = ""
-    keep_audio_files = false
+    keep_raw_audio = false
+    keep_compressed_audio = false
     copy = true
     log_level = "INFO"
 
@@ -273,9 +274,10 @@ def init_user_config(force: bool = False, prompt_file: Path | None = None) -> Pa
         '# Audio input device (leave commented to use system default)\n'
         '#device = ""\n\n'
         "# Output persistence:\n"
-        "# - keep_audio_files: false uses temp files (no recordings/ dir),\n"
-        "#   true saves to recordings/\n"
-        "keep_audio_files = false\n"
+        "# - keep_raw_audio: true saves the raw WAV recording to recordings/\n"
+        "keep_raw_audio = false\n"
+        "# - keep_compressed_audio: true saves the compressed file (opus/mp3) to recordings/\n"
+        "keep_compressed_audio = false\n"
         "# - keep_transcript_files: false prints/copies only (no\n"
         "#   transcripts/ dir), true saves to transcripts/\n"
         "keep_transcript_files = false\n"
@@ -321,7 +323,8 @@ class DefaultsConfig:
     rate: int = 16000
     channels: int = 1
     device: str | None = None
-    keep_audio_files: bool = False
+    keep_raw_audio: bool = False
+    keep_compressed_audio: bool = False
     keep_transcript_files: bool = False
     keep_log_files: bool = False
     copy: bool = True
@@ -373,7 +376,8 @@ class Config:
             if isinstance(user_defaults_raw.get("context_bias"), list)
             else [],
             "device": user_defaults_raw.get("device"),
-            "keep_audio_files": bool(user_defaults_raw.get("keep_audio_files", False)),
+            "keep_raw_audio": bool(user_defaults_raw.get("keep_raw_audio", False)),
+            "keep_compressed_audio": bool(user_defaults_raw.get("keep_compressed_audio", False)),
             "keep_transcript_files": bool(user_defaults_raw.get("keep_transcript_files", False)),
             "keep_log_files": bool(user_defaults_raw.get("keep_log_files", False)),
             "copy": bool(user_defaults_raw.get("copy", True)),
@@ -408,7 +412,7 @@ class Config:
             raise ValueError("loopback_gain must be between 0.0 and 10.0")
         defaults = DefaultsConfig(**defaults_data)
         # Conditional output directories
-        if defaults.keep_audio_files:
+        if defaults.keep_raw_audio or defaults.keep_compressed_audio:
             RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
         if defaults.keep_transcript_files:
             TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)

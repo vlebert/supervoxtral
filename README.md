@@ -253,9 +253,10 @@ chunk_overlap = 30     # 30s overlap between chunks
 #device = ""
 
 # Output persistence:
-# - keep_audio_files: false uses temp files (no recordings/ dir),
-#   true saves to recordings/
-keep_audio_files = false
+# - keep_raw_audio: true saves the raw WAV recording to recordings/
+keep_raw_audio = false
+# - keep_compressed_audio: true saves the compressed file (opus/mp3) to recordings/
+keep_compressed_audio = false
 # - keep_transcript_files: false prints/copies only (no
 #   transcripts/ dir), true saves to transcripts/
 keep_transcript_files = false
@@ -331,6 +332,7 @@ By default in CLI, uses the 'default' prompt from config.toml [prompt.default]. 
 
 ## Changelog
 
+- 0.6.0: Split `keep_audio_files` into two independent flags — `keep_raw_audio` (saves WAV) and `keep_compressed_audio` (saves opus/mp3). Fixes bug where the compressed file was always deleted even when `keep_audio_files = true`. GUI adds two persistent checkboxes (stored via QSettings) to toggle each flag without editing config.toml. `--save-all` and auto-save for long recordings activate both flags.
 - 0.5.1: GUI refinements — level meters now show the active audio interface name; window dragging fixed on all non-interactive areas; info/checkbox/status rows left-aligned with bar start; cleaner status section.
 - 0.5.0: GUI improvements — replace decorative waveform with real-time segmented LED-style audio level meters (MIC always visible, LOOP shown when a loopback device is configured), giving immediate feedback on whether signal is present before committing to a recording; redesigned info bar now shows `model`, `llm`, `audio format` and `lang` fields explicitly (avoids confusion between the Opus audio codec and the Anthropic Opus model); added window title.
 - 0.4.2: Fix audio saturation and distortion — record at device native sample rate (typically 48 kHz) instead of 16 kHz to eliminate PortAudio resampling artifacts; switch to float32 capture pipeline to avoid int16 clipping during format conversion. Remove 0.5 averaging factor in dual recording mix (meeting use case: sources are mutually exclusive, averaging unnecessarily halves the signal level).

@@ -23,8 +23,8 @@ import threading
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QPoint, QSettings, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QFont, QFontDatabase, QKeySequence
+from PySide6.QtCore import QObject, QPoint, QSettings, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QAction, QDesktopServices, QFont, QFontDatabase, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -49,6 +49,9 @@ __all__ = ["RecorderWindow", "run_gui"]
 _SETTINGS_ORG = "supervoxtral"
 _SETTINGS_APP = "ui"
 _KEY_REVIEW_MODE = "review_mode"
+_KEY_KEEP_RAW_AUDIO = "keep_raw_audio"
+_KEY_KEEP_COMPRESSED_AUDIO = "keep_compressed_audio"
+_KEY_KEEP_TRANSCRIPT_FILES = "keep_transcript_files"
 
 # Simple dark monospace stylesheet
 DARK_MONO_STYLESHEET = """
@@ -474,8 +477,11 @@ class RecorderWorker(QObject):
             wav_path, duration = pipeline.record(self._stop_event)
             self.status.emit("Recording finished.")
             if self.cancel_requested:
-                keep_audio = self.save_all or self.cfg.defaults.keep_audio_files
-                pipeline.clean(wav_path, {"wav": wav_path}, keep_audio)
+                keep_raw = self.save_all or self.cfg.defaults.keep_raw_audio
+                keep_compressed = self.save_all or self.cfg.defaults.keep_compressed_audio
+                pipeline.clean(
+                    wav_path, {"wav": wav_path}, keep_raw=keep_raw, keep_compressed=keep_compressed
+                )
                 self.canceled.emit()
                 return
             self.status.emit("Processing in progress...")
@@ -515,8 +521,11 @@ class RecorderWorker(QObject):
             if self.review_mode:
                 self.cfg.defaults.copy = False
             result = pipeline.process(wav_path, duration, transcribe_mode, user_prompt)
-            keep_audio = self.save_all or self.cfg.defaults.keep_audio_files
-            pipeline.clean(wav_path, result["paths"], keep_audio)
+            keep_raw = self.save_all or self.cfg.defaults.keep_raw_audio
+            keep_compressed = self.save_all or self.cfg.defaults.keep_compressed_audio
+            pipeline.clean(
+                wav_path, result["paths"], keep_raw=keep_raw, keep_compressed=keep_compressed
+            )
             self.done.emit(result["text"], result["raw_transcript"], result["paths"])
         except Exception as e:
             logging.exception("Pipeline failed")
@@ -701,6 +710,22 @@ class RecorderWindow(QWidget):
         self._review_mode: bool = bool(
             self._settings.value(_KEY_REVIEW_MODE, False, type=bool)
         )
+        if self._settings.contains(_KEY_KEEP_RAW_AUDIO):
+            _keep_raw = bool(self._settings.value(_KEY_KEEP_RAW_AUDIO, type=bool))
+        else:
+            _keep_raw = self.cfg.defaults.keep_raw_audio
+        if self._settings.contains(_KEY_KEEP_COMPRESSED_AUDIO):
+            _keep_compressed = bool(self._settings.value(_KEY_KEEP_COMPRESSED_AUDIO, type=bool))
+        else:
+            _keep_compressed = self.cfg.defaults.keep_compressed_audio
+        # Apply QSettings overrides to config so the pipeline sees them immediately
+        if self._settings.contains(_KEY_KEEP_TRANSCRIPT_FILES):
+            _keep_transcripts = bool(self._settings.value(_KEY_KEEP_TRANSCRIPT_FILES, type=bool))
+        else:
+            _keep_transcripts = self.cfg.defaults.keep_transcript_files
+        self.cfg.defaults.keep_raw_audio = _keep_raw
+        self.cfg.defaults.keep_compressed_audio = _keep_compressed
+        self.cfg.defaults.keep_transcript_files = _keep_transcripts
 
         # Background worker (create early for signal connections)
         self._worker = RecorderWorker(
@@ -802,14 +827,36 @@ class RecorderWindow(QWidget):
         _info_row.addStretch()
         layout.addLayout(_info_row)
 
+        self._keep_raw_checkbox = QCheckBox("Keep raw WAV")
+        self._keep_raw_checkbox.setChecked(_keep_raw)
+        self._keep_raw_checkbox.toggled.connect(self._on_keep_raw_audio_changed)
+        self._keep_compressed_checkbox = QCheckBox("Keep compressed audio")
+        self._keep_compressed_checkbox.setChecked(_keep_compressed)
+        self._keep_compressed_checkbox.toggled.connect(self._on_keep_compressed_audio_changed)
+        self._keep_transcripts_checkbox = QCheckBox("Keep transcripts")
+        self._keep_transcripts_checkbox.setChecked(_keep_transcripts)
+        self._keep_transcripts_checkbox.toggled.connect(self._on_keep_transcript_files_changed)
+        _audio_chk_row = QHBoxLayout()
+        _audio_chk_row.setContentsMargins(0, 0, 0, 0)
+        _audio_chk_row.addSpacing(_bar_offset)
+        _audio_chk_row.addWidget(self._keep_raw_checkbox)
+        _audio_chk_row.addWidget(self._keep_compressed_checkbox)
+        _audio_chk_row.addWidget(self._keep_transcripts_checkbox)
+        _audio_chk_row.addStretch()
+        layout.addLayout(_audio_chk_row)
+
         self._review_checkbox = QCheckBox("Review result")
         self._review_checkbox.setChecked(self._review_mode)
         self._review_checkbox.toggled.connect(self._on_review_mode_changed)
+        self._config_dir_btn = QPushButton("SuperVoxtral Directory")
+        self._config_dir_btn.setToolTip(str(config.USER_CONFIG_DIR))
+        self._config_dir_btn.clicked.connect(self._on_open_config_dir)
         _chk_row = QHBoxLayout()
         _chk_row.setContentsMargins(0, 0, 0, 0)
         _chk_row.addSpacing(_bar_offset)
         _chk_row.addWidget(self._review_checkbox)
         _chk_row.addStretch()
+        _chk_row.addWidget(self._config_dir_btn)
         layout.addLayout(_chk_row)
 
         # Status line
@@ -922,6 +969,21 @@ class RecorderWindow(QWidget):
     def _on_review_mode_changed(self, checked: bool) -> None:
         self._review_mode = checked
         self._settings.setValue(_KEY_REVIEW_MODE, checked)
+
+    def _on_keep_raw_audio_changed(self, checked: bool) -> None:
+        self._settings.setValue(_KEY_KEEP_RAW_AUDIO, checked)
+        self.cfg.defaults.keep_raw_audio = checked
+
+    def _on_keep_compressed_audio_changed(self, checked: bool) -> None:
+        self._settings.setValue(_KEY_KEEP_COMPRESSED_AUDIO, checked)
+        self.cfg.defaults.keep_compressed_audio = checked
+
+    def _on_keep_transcript_files_changed(self, checked: bool) -> None:
+        self._settings.setValue(_KEY_KEEP_TRANSCRIPT_FILES, checked)
+        self.cfg.defaults.keep_transcript_files = checked
+
+    def _on_open_config_dir(self) -> None:
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(config.USER_CONFIG_DIR)))
 
     def _on_error(self, message: str) -> None:
         QApplication.beep()
