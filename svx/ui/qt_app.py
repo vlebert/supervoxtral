@@ -198,6 +198,7 @@ class LevelMeterWidget(QWidget):
         self._peak: float = 0.0
         self.setMinimumHeight(36)
         self.setMaximumHeight(36)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._decay_timer = QTimer(self)
         self._decay_timer.setInterval(80)
         self._decay_timer.timeout.connect(self._decay)
@@ -738,6 +739,7 @@ class RecorderWindow(QWidget):
         title_label = QLabel(title_html)
         title_label.setTextFormat(Qt.TextFormat.RichText)
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         layout.addWidget(title_label)
 
         # Resolve device names for the meters
@@ -792,6 +794,7 @@ class RecorderWindow(QWidget):
         self._info_label.setObjectName("info_label")
         self._info_label.setTextFormat(Qt.TextFormat.RichText)
         self._info_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._info_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         _info_row = QHBoxLayout()
         _info_row.setContentsMargins(0, 0, 0, 0)
         _info_row.addSpacing(_bar_offset)
@@ -815,6 +818,7 @@ class RecorderWindow(QWidget):
         self._status_label.setObjectName("status_label")
         self._status_label.setTextFormat(Qt.TextFormat.RichText)
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._status_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         _status_row = QHBoxLayout()
         _status_row.setContentsMargins(0, 0, 0, 0)
         _status_row.addSpacing(_bar_offset)
