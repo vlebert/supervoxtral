@@ -68,7 +68,13 @@ QLabel {
 /* Info line (geek/minimal) */
 QLabel#info_label {
     color: #9fb8e6;
-    padding: 2px 6px;
+    padding: 2px 0px;
+    font-size: 10pt;
+}
+/* Status line */
+QLabel#status_label {
+    color: #cfe8ff;
+    padding: 2px 0px;
     font-size: 10pt;
 }
 
@@ -166,7 +172,7 @@ class LevelMeterWidget(QWidget):
     to match the app's dark monospace aesthetic. Includes a peak-hold segment.
     """
 
-    _LABEL_W = 44
+    _LABEL_W = 130
     _NUM_SEGS = 20
     _SEG_GAP = 2
     _TRACK_H = 8
@@ -184,13 +190,14 @@ class LevelMeterWidget(QWidget):
     _COL_PK_MID = (210, 110,  14)  # peak: brighter amber
     _COL_PK_HI  = (210,  45,  45)  # peak: brighter red
 
-    def __init__(self, label: str, parent: QWidget | None = None) -> None:
+    def __init__(self, label: str, device_name: str = "", parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._label = label
+        self._device_name = device_name
         self._display_level: float = 0.0
         self._peak: float = 0.0
-        self.setMinimumHeight(22)
-        self.setMaximumHeight(22)
+        self.setMinimumHeight(36)
+        self.setMaximumHeight(36)
         self._decay_timer = QTimer(self)
         self._decay_timer.setInterval(80)
         self._decay_timer.timeout.connect(self._decay)
@@ -228,26 +235,47 @@ class LevelMeterWidget(QWidget):
 
         h = self.height()
         bar_x = self._LABEL_W + 4
-        bar_w = max(1, self.width() - bar_x - 4)
+        bar_w = max(1, self.width() - bar_x - 12)
         bar_y = (h - self._TRACK_H) // 2
 
         seg_w = max(1, (bar_w - (self._NUM_SEGS - 1) * self._SEG_GAP) // self._NUM_SEGS)
 
         p = QPainter(self)
 
-        # Label — muted blue-grey, same family as info_label
-        p.setPen(QColor(100, 140, 172))
         font = p.font()
-        font.setPointSize(8)
-        p.setFont(font)
-        p.drawText(
-            0,
-            0,
-            self._LABEL_W,
-            h,
-            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
-            self._label,
-        )
+        if self._device_name:
+            # Top half: short label ("MIC" / "LOOP") in muted blue-grey
+            mid = h // 2
+            p.setPen(QColor(100, 140, 172))
+            font.setPointSize(8)
+            p.setFont(font)
+            p.drawText(
+                0, 0, self._LABEL_W, mid,
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
+                self._label,
+            )
+            # Bottom half: device name, dimmer, elided if too long
+            p.setPen(QColor(55, 82, 105))
+            font.setPointSize(8)
+            p.setFont(font)
+            elided = p.fontMetrics().elidedText(
+                self._device_name, Qt.TextElideMode.ElideRight, self._LABEL_W - 2
+            )
+            p.drawText(
+                0, mid, self._LABEL_W, h - mid,
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
+                elided,
+            )
+        else:
+            # Single-line label (no device name)
+            p.setPen(QColor(100, 140, 172))
+            font.setPointSize(8)
+            p.setFont(font)
+            p.drawText(
+                0, 0, self._LABEL_W, h,
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
+                self._label,
+            )
 
         active = int(self._NUM_SEGS * self._display_level)
         peak_seg = int(self._NUM_SEGS * self._peak)
@@ -630,6 +658,18 @@ class ResultDialog(QDialog):
             super().mouseReleaseEvent(event)
 
 
+def _get_default_input_name() -> str:
+    """Return the name of the current default audio input device."""
+    try:
+        import sounddevice as sd
+
+        dev = sd.query_devices(kind="input")
+        return str(dev.get("name", "unknown"))
+    except Exception:
+        return "unknown"
+
+
+
 class RecorderWindow(QWidget):
     """
     Frameless always-on-top window with Transcribe and Prompt buttons.
@@ -678,7 +718,7 @@ class RecorderWindow(QWidget):
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.setMinimumWidth(260)
+        self.setMinimumWidth(360)
 
         # For dragging
         self._drag_active = False
@@ -700,12 +740,18 @@ class RecorderWindow(QWidget):
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title_label)
 
+        # Resolve device names for the meters
+        mic_name = _get_default_input_name()
+        loop_name = self.cfg.defaults.loopback_device or ""
+
         # Audio level meters (real-time RMS from separate monitoring streams)
-        self._mic_meter = LevelMeterWidget("MIC", self)
+        self._mic_meter = LevelMeterWidget("MIC", device_name=mic_name, parent=self)
         layout.addWidget(self._mic_meter)
         has_loopback = bool(self.cfg.defaults.loopback_device)
         if has_loopback:
-            self._loop_meter: LevelMeterWidget | None = LevelMeterWidget("LOOP", self)
+            self._loop_meter: LevelMeterWidget | None = LevelMeterWidget(
+                "LOOP", device_name=loop_name, parent=self
+            )
             layout.addWidget(self._loop_meter)
         else:
             self._loop_meter = None
@@ -740,27 +786,42 @@ class RecorderWindow(QWidget):
                 f"<span style='color:#705890'>{self.cfg.defaults.language}</span>"
             )
             info_parts.append(lang_html)
+        _bar_offset = LevelMeterWidget._LABEL_W + 4  # align with bar start
+
         self._info_label = QLabel(_sep.join(info_parts))
         self._info_label.setObjectName("info_label")
         self._info_label.setTextFormat(Qt.TextFormat.RichText)
-        self._info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self._info_label)
-
-        # Status line — hidden during recording (meters handle that feedback)
-        self._status_label = QLabel("")
-        self._status_label.setObjectName("info_label")
-        self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self._status_label)
+        self._info_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        _info_row = QHBoxLayout()
+        _info_row.setContentsMargins(0, 0, 0, 0)
+        _info_row.addSpacing(_bar_offset)
+        _info_row.addWidget(self._info_label)
+        _info_row.addStretch()
+        layout.addLayout(_info_row)
 
         self._review_checkbox = QCheckBox("Review result")
         self._review_checkbox.setChecked(self._review_mode)
         self._review_checkbox.toggled.connect(self._on_review_mode_changed)
-        layout.addWidget(self._review_checkbox, 0, Qt.AlignmentFlag.AlignCenter)
-        self._review_hint = QLabel()
-        self._review_hint.setObjectName("info_label")
-        self._review_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._update_review_hint()
-        layout.addWidget(self._review_hint)
+        _chk_row = QHBoxLayout()
+        _chk_row.setContentsMargins(0, 0, 0, 0)
+        _chk_row.addSpacing(_bar_offset)
+        _chk_row.addWidget(self._review_checkbox)
+        _chk_row.addStretch()
+        layout.addLayout(_chk_row)
+
+        # Status line
+        layout.addSpacing(16)
+        self._status_label = QLabel("")
+        self._status_label.setObjectName("status_label")
+        self._status_label.setTextFormat(Qt.TextFormat.RichText)
+        self._status_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        _status_row = QHBoxLayout()
+        _status_row.setContentsMargins(0, 0, 0, 0)
+        _status_row.addSpacing(_bar_offset)
+        _status_row.addWidget(self._status_label)
+        _status_row.addStretch()
+        layout.addLayout(_status_row)
+        layout.addSpacing(8)
 
         # Buttons layout
         button_layout = QHBoxLayout()
@@ -830,13 +891,16 @@ class RecorderWindow(QWidget):
             self._loop_meter.set_level(loop_rms)
 
     def _on_status(self, msg: str) -> None:
-        # "Recording in progress..." is conveyed by the level meters; skip it
-        if msg == "Recording in progress...":
-            return
-        self._status_label.setText(msg)
+        self._set_status(msg)
+
+    def _set_status(self, msg: str) -> None:
+        self._status_label.setText(
+            f"<span style='color:#3d5a72'>Status:</span>"
+            f" <span style='color:#cfe8ff'>{msg}</span>"
+        )
 
     def _on_done(self, text: str, raw_transcript: str, paths: object) -> None:
-        self._status_label.setText("Done.")
+        self._set_status("Done.")
         QApplication.beep()
         if self._review_mode:
             self.hide()
@@ -854,13 +918,6 @@ class RecorderWindow(QWidget):
     def _on_review_mode_changed(self, checked: bool) -> None:
         self._review_mode = checked
         self._settings.setValue(_KEY_REVIEW_MODE, checked)
-        self._update_review_hint()
-
-    def _update_review_hint(self) -> None:
-        if self._review_mode:
-            self._review_hint.setText("→ result shown for review, copy manually")
-        else:
-            self._review_hint.setText("→ result auto-copied to clipboard, window closes")
 
     def _on_error(self, message: str) -> None:
         QApplication.beep()
@@ -883,7 +940,7 @@ class RecorderWindow(QWidget):
         for btn in self._action_buttons:
             btn.setEnabled(False)
         self._cancel_btn.setEnabled(False)
-        self._status_label.setText("Stopping and processing...")
+        self._set_status("Stopping and processing...")
         self._worker.set_review_mode(self._review_mode)
         self._worker.set_mode(mode)
         self._worker.stop()
@@ -893,7 +950,7 @@ class RecorderWindow(QWidget):
         for btn in self._action_buttons:
             btn.setEnabled(False)
         self._cancel_btn.setEnabled(False)
-        self._status_label.setText("Canceling...")
+        self._set_status("Canceling...")
         self._worker.cancel()
 
     # --- Drag handling for frameless window ---
