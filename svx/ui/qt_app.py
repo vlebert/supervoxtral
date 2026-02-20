@@ -849,7 +849,7 @@ class RecorderWindow(QWidget):
         self._review_checkbox.setChecked(self._review_mode)
         self._review_checkbox.toggled.connect(self._on_review_mode_changed)
         self._config_dir_btn = QPushButton("SuperVoxtral Directory")
-        self._config_dir_btn.setToolTip(str(config.USER_CONFIG_DIR))
+        self._config_dir_btn.setToolTip(str(config.USER_DATA_DIR))
         self._config_dir_btn.clicked.connect(self._on_open_config_dir)
         _chk_row = QHBoxLayout()
         _chk_row.setContentsMargins(0, 0, 0, 0)
@@ -983,7 +983,7 @@ class RecorderWindow(QWidget):
         self.cfg.defaults.keep_transcript_files = checked
 
     def _on_open_config_dir(self) -> None:
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(config.USER_CONFIG_DIR)))
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(config.USER_DATA_DIR)))
 
     def _on_error(self, message: str) -> None:
         QApplication.beep()
@@ -1001,11 +1001,20 @@ class RecorderWindow(QWidget):
         self._worker.cancel()
         super().closeEvent(event)
 
-    def _on_mode_selected(self, mode: str) -> None:
-        self._level_monitor.stop()
+    def _freeze_controls(self) -> None:
+        """Disable all interactive controls once processing or cancel is triggered."""
         for btn in self._action_buttons:
             btn.setEnabled(False)
         self._cancel_btn.setEnabled(False)
+        self._keep_raw_checkbox.setEnabled(False)
+        self._keep_compressed_checkbox.setEnabled(False)
+        self._keep_transcripts_checkbox.setEnabled(False)
+        self._review_checkbox.setEnabled(False)
+        self._config_dir_btn.setEnabled(False)
+
+    def _on_mode_selected(self, mode: str) -> None:
+        self._level_monitor.stop()
+        self._freeze_controls()
         self._set_status("Stopping and processing...")
         self._worker.set_review_mode(self._review_mode)
         self._worker.set_mode(mode)
@@ -1013,9 +1022,7 @@ class RecorderWindow(QWidget):
 
     def _on_cancel_clicked(self) -> None:
         self._level_monitor.stop()
-        for btn in self._action_buttons:
-            btn.setEnabled(False)
-        self._cancel_btn.setEnabled(False)
+        self._freeze_controls()
         self._set_status("Canceling...")
         self._worker.cancel()
 
