@@ -301,10 +301,9 @@ class LevelMeterWidget(QWidget):
 
 class AudioLevelMonitor(QObject):
     """
-    Monitors audio input levels by opening lightweight read-only streams
-    alongside (and independent from) the recording pipeline streams.
+    Qt adapter around the framework-agnostic AudioLevelMonitor core.
 
-    Emits `levels(mic_rms, loop_rms)` at ~20 Hz.
+    Emits `levels(mic_rms, loop_rms)` at ~20 Hz via a QTimer.
     `loop_rms` is -1.0 when no loopback device is configured.
     """
 
@@ -317,87 +316,38 @@ class AudioLevelMonitor(QObject):
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
-        self._mic_device = mic_device
+        from svx.core.level_monitor import AudioLevelMonitor as _CoreMonitor
+
+        self._core = _CoreMonitor(mic_device=mic_device, loopback_device=loopback_device)
         self._loop_device = loopback_device
         self._mic_rms: float = 0.0
         self._loop_rms: float = 0.0
-        self._mic_stream: object = None
-        self._loop_stream: object = None
         self._timer = QTimer(self)
         self._timer.setInterval(50)  # 20 Hz
         self._timer.timeout.connect(self._emit_and_decay)
 
-    # --- audio callbacks (called from PortAudio real-time thread) ---
-
-    def _mic_cb(self, indata, frames, time_info, status) -> None:  # type: ignore[override]
-        import numpy as np
-
-        rms = float(np.sqrt(np.mean(indata**2)))
-        # Peak-hold between emit frames
-        if rms > self._mic_rms:
-            self._mic_rms = rms
-
-    def _loop_cb(self, indata, frames, time_info, status) -> None:  # type: ignore[override]
-        import numpy as np
-
-        rms = float(np.sqrt(np.mean(indata**2)))
-        if rms > self._loop_rms:
-            self._loop_rms = rms
-
-    # --- public API ---
-
     def start(self) -> None:
-        import sounddevice as sd
-
-        try:
-            self._mic_stream = sd.InputStream(
-                device=self._mic_device,
-                channels=1,
-                dtype="float32",
-                blocksize=2048,
-                callback=self._mic_cb,
-            )
-            self._mic_stream.start()  # type: ignore[union-attr]
-        except Exception:
-            logging.debug("AudioLevelMonitor: could not open mic monitor stream", exc_info=True)
-
-        if self._loop_device is not None:
-            try:
-                self._loop_stream = sd.InputStream(
-                    device=self._loop_device,
-                    channels=1,
-                    dtype="float32",
-                    blocksize=2048,
-                    callback=self._loop_cb,
-                )
-                self._loop_stream.start()  # type: ignore[union-attr]
-            except Exception:
-                logging.debug(
-                    "AudioLevelMonitor: could not open loopback monitor stream", exc_info=True
-                )
-
+        # Delay stream opening so the recording pipeline can claim the audio
+        # device first. On macOS AUHAL, a simultaneous second InputStream on
+        # the same device returns error -50 and silently produces silence in
+        # the recording stream. QTimer.singleShot avoids blocking the event loop.
+        QTimer.singleShot(400, self._core.start)
         self._timer.start()
 
     def stop(self) -> None:
         self._timer.stop()
-        for stream in (self._mic_stream, self._loop_stream):
-            if stream is not None:
-                try:
-                    stream.stop()  # type: ignore[union-attr]
-                    stream.close()  # type: ignore[union-attr]
-                except Exception:
-                    pass
-        self._mic_stream = None
-        self._loop_stream = None
+        self._core.stop()
         self._mic_rms = 0.0
         self._loop_rms = 0.0
 
     def _emit_and_decay(self) -> None:
-        loop_rms = self._loop_rms if self._loop_device is not None else -1.0
-        self.levels.emit(self._mic_rms, loop_rms)
-        # Natural decay so the meter falls during silence
-        self._mic_rms *= 0.6
-        self._loop_rms *= 0.6
+        mic_peak, loop_peak = self._core.get_and_reset_peaks()
+        # Peak-hold with decay so the meter falls smoothly between frames
+        self._mic_rms = max(mic_peak, self._mic_rms * 0.6)
+        if loop_peak >= 0.0:
+            self._loop_rms = max(loop_peak, self._loop_rms * 0.6)
+        loop_out = self._loop_rms if self._loop_device is not None else -1.0
+        self.levels.emit(self._mic_rms, loop_out)
 
 
 class RecorderWorker(QObject):
