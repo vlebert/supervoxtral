@@ -524,8 +524,10 @@ def record(
 
         console.print(Panel.fit(text, title=f"{cfg.defaults.provider.capitalize()} Response"))
 
-        if paths.get("wav"):
+        if paths.get("wav") and paths["wav"].exists():
             console.print(f"Saved audio: {paths['wav']}")
+        if paths.get("converted") and paths["converted"].exists():
+            console.print(f"Saved audio: {paths['converted']}")
         if paths.get("txt"):
             console.print(f"Saved transcript: {paths['txt']}")
         if paths.get("json"):
