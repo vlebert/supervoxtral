@@ -520,17 +520,18 @@ def record(
         paths = result["paths"]
 
         console.print(f"Recording completed in {duration:.1f}s")
-        if paths.get("wav"):
-            console.print(f"Audio saved to {paths['wav']}")
-        else:
-            console.print("Audio file (temporary) deleted after processing.")
+        logging.debug("Audio path: %s", paths.get("wav"))
 
         console.print(Panel.fit(text, title=f"{cfg.defaults.provider.capitalize()} Response"))
 
+        if paths.get("wav"):
+            console.print(f"Saved audio: {paths['wav']}")
         if paths.get("txt"):
             console.print(f"Saved transcript: {paths['txt']}")
         if paths.get("json"):
             console.print(f"Saved raw JSON: {paths['json']}")
+        if cfg.defaults.copy:
+            console.print("[green]Copied to clipboard.[/green]")
 
     except Exception as e:
         logging.exception("Error in record command")
