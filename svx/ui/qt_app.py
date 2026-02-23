@@ -181,17 +181,17 @@ class LevelMeterWidget(QWidget):
     _TRACK_H = 8
 
     # Colour zones (segment index thresholds)
-    _WARN_SEG = int(_NUM_SEGS * 0.68)   # amber starts here
-    _CLIP_SEG = int(_NUM_SEGS * 0.86)   # dark-red starts here
+    _WARN_SEG = int(_NUM_SEGS * 0.68)  # amber starts here
+    _CLIP_SEG = int(_NUM_SEGS * 0.86)  # dark-red starts here
 
     # Muted palette — dark enough to feel at home in the #0f1113 theme
-    _COL_OFF    = (13,  26,  34)   # barely-visible inactive segment
-    _COL_ON_LO  = (14, 116, 144)   # dark cyan  (normal signal)
-    _COL_ON_MID = (161,  88,  10)  # dark amber (warning)
-    _COL_ON_HI  = (160,  30,  30)  # dark red   (clip)
-    _COL_PK_LO  = (30,  160, 196)  # peak: brighter cyan
-    _COL_PK_MID = (210, 110,  14)  # peak: brighter amber
-    _COL_PK_HI  = (210,  45,  45)  # peak: brighter red
+    _COL_OFF = (13, 26, 34)  # barely-visible inactive segment
+    _COL_ON_LO = (14, 116, 144)  # dark cyan  (normal signal)
+    _COL_ON_MID = (161, 88, 10)  # dark amber (warning)
+    _COL_ON_HI = (160, 30, 30)  # dark red   (clip)
+    _COL_PK_LO = (30, 160, 196)  # peak: brighter cyan
+    _COL_PK_MID = (210, 110, 14)  # peak: brighter amber
+    _COL_PK_HI = (210, 45, 45)  # peak: brighter red
 
     def __init__(self, label: str, device_name: str = "", parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -254,7 +254,10 @@ class LevelMeterWidget(QWidget):
             font.setPointSize(8)
             p.setFont(font)
             p.drawText(
-                0, 0, self._LABEL_W, mid,
+                0,
+                0,
+                self._LABEL_W,
+                mid,
                 int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
                 self._label,
             )
@@ -266,7 +269,10 @@ class LevelMeterWidget(QWidget):
                 self._device_name, Qt.TextElideMode.ElideRight, self._LABEL_W - 2
             )
             p.drawText(
-                0, mid, self._LABEL_W, h - mid,
+                0,
+                mid,
+                self._LABEL_W,
+                h - mid,
                 int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
                 elided,
             )
@@ -276,7 +282,10 @@ class LevelMeterWidget(QWidget):
             font.setPointSize(8)
             p.setFont(font)
             p.drawText(
-                0, 0, self._LABEL_W, h,
+                0,
+                0,
+                self._LABEL_W,
+                h,
                 int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
                 self._label,
             )
@@ -343,6 +352,8 @@ class AudioLevelMonitor(QObject):
         self._mic_rms = max(mic_peak, self._mic_rms * 0.6)
         if loop_peak >= 0.0:
             self._loop_rms = max(loop_peak, self._loop_rms * 0.6)
+        else:
+            self._loop_rms = self._loop_rms * 0.6
         loop_out = self._loop_rms if self._loop_device is not None else -1.0
         self.levels.emit(self._mic_rms, loop_out)
 
@@ -571,8 +582,7 @@ class ResultDialog(QDialog):
         transcript_path = paths.get("transcript") or paths.get("txt")
         if isinstance(transcript_path, Path):
             link_label = QLabel(
-                f'<a href="{transcript_path.as_uri()}" style="color:#5ea8ff;">'
-                f"{transcript_path}</a>"
+                f'<a href="{transcript_path.as_uri()}" style="color:#5ea8ff;">{transcript_path}</a>'
             )
             link_label.setOpenExternalLinks(True)
             link_label.setTextFormat(Qt.TextFormat.RichText)
@@ -629,7 +639,6 @@ def _get_default_input_name() -> str:
         return "unknown"
 
 
-
 class RecorderWindow(QWidget):
     """
     Frameless always-on-top window with Transcribe and Prompt buttons.
@@ -657,9 +666,7 @@ class RecorderWindow(QWidget):
         self.outfile_prefix = outfile_prefix
         self.prompt_keys = sorted(self.cfg.prompt.prompts.keys())
         self._settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
-        self._review_mode: bool = bool(
-            self._settings.value(_KEY_REVIEW_MODE, False, type=bool)
-        )
+        self._review_mode: bool = bool(self._settings.value(_KEY_REVIEW_MODE, False, type=bool))
         if self._settings.contains(_KEY_KEEP_RAW_AUDIO):
             _keep_raw = bool(self._settings.value(_KEY_KEEP_RAW_AUDIO, type=bool))
         else:
@@ -746,7 +753,7 @@ class RecorderWindow(QWidget):
         self._level_monitor.levels.connect(self._on_levels)
 
         # Config info line: model / chat model / audio format / language
-        _k = "color:#3d5a72"   # key label colour (dimmed)
+        _k = "color:#3d5a72"  # key label colour (dimmed)
         _sep = "<span style='color:#1c2e3c'> · </span>"
         model_html = (
             f"<span style='{_k}'>model:</span> "
@@ -918,8 +925,7 @@ class RecorderWindow(QWidget):
 
     def _set_status(self, msg: str) -> None:
         self._status_label.setText(
-            f"<span style='color:#3d5a72'>Status:</span>"
-            f" <span style='color:#cfe8ff'>{msg}</span>"
+            f"<span style='color:#3d5a72'>Status:</span> <span style='color:#cfe8ff'>{msg}</span>"
         )
 
     def _on_done(self, text: str, raw_transcript: str, paths: object) -> None:

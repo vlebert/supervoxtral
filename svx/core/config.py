@@ -271,7 +271,7 @@ def init_user_config(force: bool = False, prompt_file: Path | None = None) -> Pa
         "# Adjust these if one source is too loud or too quiet in your recordings\n"
         "mic_gain = 1.0\n"
         "loopback_gain = 1.0\n\n"
-        '# Audio input device (leave commented to use system default)\n'
+        "# Audio input device (leave commented to use system default)\n"
         '#device = ""\n\n'
         "# Output persistence:\n"
         "# - keep_raw_audio: true saves the raw WAV recording to recordings/\n"

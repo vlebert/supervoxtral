@@ -7,6 +7,7 @@ import threading
 import time
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -137,8 +138,8 @@ def _make_meter_bar(display_level: float, peak: float, num_segs: int = 24) -> Te
     Returns:
         A Rich Text object with coloured block characters.
     """
-    _WARN = int(num_segs * 0.68)   # amber zone starts here
-    _CLIP = int(num_segs * 0.86)   # red zone starts here
+    _WARN = int(num_segs * 0.68)  # amber zone starts here
+    _CLIP = int(num_segs * 0.86)  # red zone starts here
 
     active = int(num_segs * max(0.0, min(1.0, display_level)))
     peak_seg = int(num_segs * max(0.0, min(1.0, peak)))
@@ -288,7 +289,8 @@ def _record_with_live_display(
             finally:
                 stop_event.set()
 
-        threading.Thread(target=_wait_static, daemon=True).start()
+        _waiter = threading.Thread(target=_wait_static, daemon=True)
+        _waiter.start()
         return
 
     from rich.live import Live
@@ -297,7 +299,9 @@ def _record_with_live_display(
     try:
         import sounddevice as sd
 
-        mic_name = str(sd.query_devices(kind="input").get("name", "default"))
+        mic_name = str(
+            sd.query_devices(device=cfg.defaults.device, kind="input").get("name", "default")
+        )
     except Exception:
         mic_name = "default"
 
@@ -470,8 +474,6 @@ def record(
 
         stop_event = threading.Event()
 
-        from typing import Any
-
         from svx.core.level_monitor import AudioLevelMonitor as _CoreMonitor
 
         # Shared monitor: pipeline pushes RMS values via its recording callbacks;
@@ -512,6 +514,9 @@ def record(
 
         if _pipeline_error:
             raise _pipeline_error[0]
+
+        if not _pipeline_result:
+            raise RuntimeError("Pipeline exited without producing a result")
 
         result = _pipeline_result[0]
 
