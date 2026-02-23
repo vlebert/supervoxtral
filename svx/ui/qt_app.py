@@ -327,11 +327,8 @@ class AudioLevelMonitor(QObject):
         self._timer.timeout.connect(self._emit_and_decay)
 
     def start(self) -> None:
-        # Delay stream opening so the recording pipeline can claim the audio
-        # device first. On macOS AUHAL, a simultaneous second InputStream on
-        # the same device returns error -50 and silently produces silence in
-        # the recording stream. QTimer.singleShot avoids blocking the event loop.
-        QTimer.singleShot(400, self._core.start)
+        # No stream opening needed: the recording pipeline feeds levels via its
+        # own callbacks (push mode). Just start the polling timer.
         self._timer.start()
 
     def stop(self) -> None:
@@ -373,6 +370,7 @@ class RecorderWorker(QObject):
         save_all: bool = False,
         outfile_prefix: str | None = None,
         review_mode: bool = False,
+        level_monitor: object | None = None,
     ) -> None:
         super().__init__()
         self.cfg = cfg
@@ -380,6 +378,7 @@ class RecorderWorker(QObject):
         self.user_prompt_file = user_prompt_file
         self.save_all = save_all
         self.outfile_prefix = outfile_prefix
+        self.level_monitor = level_monitor
         self.mode: str | None = None
         self.cancel_requested: bool = False
         self.review_mode = review_mode
@@ -422,6 +421,7 @@ class RecorderWorker(QObject):
                 save_all=self.save_all,
                 outfile_prefix=self.outfile_prefix,
                 progress_callback=self.status.emit,
+                level_monitor=self.level_monitor,
             )
             self.status.emit("Recording in progress...")
             wav_path, duration = pipeline.record(self._stop_event)
@@ -677,6 +677,15 @@ class RecorderWindow(QWidget):
         self.cfg.defaults.keep_compressed_audio = _keep_compressed
         self.cfg.defaults.keep_transcript_files = _keep_transcripts
 
+        # Audio level monitor — created first so its core can be shared with the worker.
+        # The pipeline feeds levels via its recording callbacks (push mode); no extra
+        # audio streams are opened by the monitor itself.
+        self._level_monitor = AudioLevelMonitor(
+            mic_device=None,
+            loopback_device=self.cfg.defaults.loopback_device,
+            parent=self,
+        )
+
         # Background worker (create early for signal connections)
         self._worker = RecorderWorker(
             cfg=self.cfg,
@@ -684,6 +693,7 @@ class RecorderWindow(QWidget):
             user_prompt_file=user_prompt_file,
             save_all=save_all,
             outfile_prefix=outfile_prefix,
+            level_monitor=self._level_monitor._core,
         )
         self._thread = threading.Thread(target=self._worker.run, daemon=True)
 
@@ -733,12 +743,6 @@ class RecorderWindow(QWidget):
         else:
             self._loop_meter = None
 
-        # Audio level monitor (separate monitoring streams, independent from recording)
-        self._level_monitor = AudioLevelMonitor(
-            mic_device=None,
-            loopback_device=self.cfg.defaults.loopback_device,
-            parent=self,
-        )
         self._level_monitor.levels.connect(self._on_levels)
 
         # Config info line: model / chat model / audio format / language

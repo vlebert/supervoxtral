@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import queue
 import time
+from collections.abc import Callable
 from pathlib import Path
 from threading import Event, Thread
 from typing import Any
@@ -67,6 +68,8 @@ def record_dual_wav(
     stop_event: Event | None = None,
     mic_gain: float = 1.0,
     loopback_gain: float = 1.0,
+    mic_level_cb: Callable[[float], None] | None = None,
+    loop_level_cb: Callable[[float], None] | None = None,
 ) -> float:
     """
     Record from two input devices simultaneously into a mono WAV file.
@@ -116,6 +119,8 @@ def record_dual_wav(
         if status:
             logging.warning("Mic device status: %s", status)
         mic_q.put(indata.copy())
+        if mic_level_cb is not None:
+            mic_level_cb(float(np.sqrt(np.mean(indata**2))))
 
     def loop_callback(
         indata: np.ndarray[Any, np.dtype[np.float32]],
@@ -126,6 +131,8 @@ def record_dual_wav(
         if status:
             logging.warning("Loopback device status: %s", status)
         loop_q.put(indata.copy())
+        if loop_level_cb is not None:
+            loop_level_cb(float(np.sqrt(np.mean(indata**2))))
 
     def _drain_queue(
         q: queue.Queue[np.ndarray[Any, np.dtype[np.float32]]],

@@ -171,6 +171,7 @@ def _make_meter_bar(display_level: float, peak: float, num_segs: int = 24) -> Te
 
 def _make_live_renderable(
     cfg: Config,
+    mic_name: str,
     mic_lvl: float,
     mic_pk: float,
     loop_lvl: float,
@@ -182,6 +183,7 @@ def _make_live_renderable(
 
     Args:
         cfg: Current Config instance (for model/format/language info).
+        mic_name: Resolved mic device name (caller resolves once before the loop).
         mic_lvl: Mic display level [0, 1].
         mic_pk: Mic peak-hold [0, 1].
         loop_lvl: Loopback display level [0, 1].
@@ -196,13 +198,6 @@ def _make_live_renderable(
     lines = Text()
 
     # Mic meter row
-    try:
-        import sounddevice as sd
-
-        mic_name = str(sd.query_devices(kind="input").get("name", "default"))
-    except Exception:
-        mic_name = "default"
-
     mic_label = Text("  MIC   ", style="color(67)")
     mic_bar = _make_meter_bar(mic_lvl, mic_pk)
     mic_row = Text.assemble(mic_label, mic_bar, Text(f"  {mic_name}", style="dim"))
@@ -256,16 +251,24 @@ def _log_scale(rms: float) -> float:
     return max(0.0, min(1.0, (20.0 * math.log10(rms) + 50.0) / 50.0))
 
 
-def _record_with_live_display(cfg: Config, stop_event: threading.Event) -> None:
+def _record_with_live_display(
+    cfg: Config,
+    stop_event: threading.Event,
+    monitor: object,
+) -> None:
     """
     Show an animated Rich Live panel with audio level meters during recording.
 
+    The monitor is fed by the recording pipeline's own callbacks (push mode) —
+    no separate audio streams are opened here.
+
     Falls back to a static panel when stdout is not a TTY (e.g. piped output).
-    Blocks until the user presses Enter (sets stop_event) or the recording ends.
+    Blocks until the user presses Enter (sets stop_event).
 
     Args:
         cfg: Current Config instance.
         stop_event: Event to set when the user signals stop.
+        monitor: AudioLevelMonitor instance shared with the pipeline.
     """
     if not sys.stdout.isatty():
         # Non-TTY fallback: print static message and start Enter-waiter in background.
@@ -285,19 +288,13 @@ def _record_with_live_display(cfg: Config, stop_event: threading.Event) -> None:
 
     from rich.live import Live
 
-    from svx.core.level_monitor import AudioLevelMonitor
+    # Resolve mic name once — sd.query_devices is not free to call in a tight loop.
+    try:
+        import sounddevice as sd
 
-    monitor = AudioLevelMonitor(
-        mic_device=cfg.defaults.device,
-        loopback_device=cfg.defaults.loopback_device,
-    )
-    # Wait for the pipeline's recording streams to open before starting the monitor.
-    # On macOS, AUHAL rejects a second concurrent InputStream on the same device
-    # (error -50) when both streams try to open simultaneously. By letting the
-    # pipeline claim the device first, the monitor streams open as secondary
-    # readers without interfering with the recording.
-    time.sleep(0.4)
-    monitor.start()
+        mic_name = str(sd.query_devices(kind="input").get("name", "default"))
+    except Exception:
+        mic_name = "default"
 
     mic_display: float = 0.0
     mic_peak: float = 0.0
@@ -317,15 +314,16 @@ def _record_with_live_display(cfg: Config, stop_event: threading.Event) -> None:
     threading.Thread(target=_wait_enter, daemon=True).start()
 
     refresh_interval = 0.05  # 20 Hz
+    get_peaks = getattr(monitor, "get_and_reset_peaks", None)
 
     with Live(
-        _make_live_renderable(cfg, 0.0, 0.0, 0.0, 0.0, 0.0),
+        _make_live_renderable(cfg, mic_name, 0.0, 0.0, 0.0, 0.0, 0.0),
         refresh_per_second=20,
         transient=True,
         console=console,
     ) as live:
         while not stop_event.is_set():
-            mic_rms, loop_rms = monitor.get_and_reset_peaks()
+            mic_rms, loop_rms = get_peaks() if get_peaks else (0.0, -1.0)
 
             # Log-scale + decay
             mic_display = max(_log_scale(mic_rms), mic_display * 0.82)
@@ -341,11 +339,11 @@ def _record_with_live_display(cfg: Config, stop_event: threading.Event) -> None:
 
             elapsed = time.monotonic() - start_time
             live.update(
-                _make_live_renderable(cfg, mic_display, mic_peak, loop_display, loop_peak, elapsed)
+                _make_live_renderable(
+                    cfg, mic_name, mic_display, mic_peak, loop_display, loop_peak, elapsed
+                )
             )
             time.sleep(refresh_interval)
-
-    monitor.stop()
 
 
 @app.command()
@@ -449,6 +447,14 @@ def record(
 
         stop_event = threading.Event()
 
+        from typing import Any
+
+        from svx.core.level_monitor import AudioLevelMonitor as _CoreMonitor
+
+        # Shared monitor: pipeline pushes RMS values via its recording callbacks;
+        # the live display reads them. No extra audio streams are opened.
+        _monitor = _CoreMonitor(loopback_device=cfg.defaults.loopback_device)
+
         pipeline = RecordingPipeline(
             cfg=cfg,
             user_prompt=user_prompt,
@@ -457,12 +463,11 @@ def record(
             outfile_prefix=outfile_prefix,
             transcribe_mode=transcribe,
             progress_callback=progress_cb,
+            level_monitor=_monitor,
         )
 
         # Run the pipeline in a background thread so the live display can run
         # concurrently in the foreground (mirrors the GUI's RecorderWorker pattern).
-        from typing import Any
-
         _pipeline_result: list[dict[str, Any]] = []
         _pipeline_error: list[BaseException] = []
 
@@ -477,7 +482,7 @@ def record(
 
         # Show animated live display (TTY) or just wait (non-TTY).
         # Returns only after stop_event is set (user pressed Enter).
-        _record_with_live_display(cfg, stop_event)
+        _record_with_live_display(cfg, stop_event, _monitor)
 
         # Wait for pipeline to finish processing after recording stopped.
         _pipeline_thread.join()

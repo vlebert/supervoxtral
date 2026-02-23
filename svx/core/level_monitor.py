@@ -106,6 +106,18 @@ class AudioLevelMonitor:
             self._mic_peak = 0.0
             self._loop_peak = 0.0
 
+    def push_mic(self, rms: float) -> None:
+        """Push a mic RMS value from an external source (e.g. a recording callback)."""
+        with self._lock:
+            if rms > self._mic_peak:
+                self._mic_peak = rms
+
+    def push_loop(self, rms: float) -> None:
+        """Push a loopback RMS value from an external source."""
+        with self._lock:
+            if rms > self._loop_peak:
+                self._loop_peak = rms
+
     def get_and_reset_peaks(self) -> tuple[float, float]:
         """
         Return (mic_peak_rms, loop_peak_rms) accumulated since the last call,
