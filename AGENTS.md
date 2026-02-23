@@ -13,14 +13,15 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
 
 ### Module Structure
 
-- **svx/cli.py**: Typer CLI entrypoint; orchestration only, delegates to Config and Pipeline
+- **svx/cli.py**: Typer CLI entrypoint; orchestration only, delegates to Config and Pipeline. During recording, runs the pipeline in a background thread while the main thread drives a Rich `Live` animated panel (level meters + elapsed time + config info). The root logger's StreamHandler is temporarily replaced with a `RichHandler` tied to the same `Console` instance to prevent cursor-tracking desync.
 - **svx/core/**:
   - `config.py`: Config dataclasses, TOML loading, prompt resolution (supports multiple prompts via [prompt.key] sections), logging setup. `get_user_data_dir()` / `get_user_config_dir()` for platform-standard paths. `keep_raw_audio` / `keep_compressed_audio` control WAV and compressed file retention independently.
-  - `pipeline.py`: RecordingPipeline class - records (single or dual device), auto-chunks long recordings, transcribes with diarization, saves conditionally, copies to clipboard
+  - `pipeline.py`: RecordingPipeline class - records (single or dual device), auto-chunks long recordings, transcribes with diarization, saves conditionally, copies to clipboard. Accepts an optional `level_monitor` (AudioLevelMonitor) and calls `push_mic`/`push_loop` from its recording callbacks.
   - `audio.py`: WAV recording (sounddevice), ffmpeg detection/conversion to MP3/Opus
   - `chunking.py`: Split long WAV files into overlapping chunks (`split_wav`), merge transcription segments (`merge_segments`) with crossfade deduplication, merge texts (`merge_texts`)
   - `meeting_audio.py`: Dual-device recording (`record_dual_wav`) — mic + loopback mixed to mono with configurable per-source gain. `find_loopback_device()` for device discovery.
   - `formatting.py`: Format diarized transcription segments with speaker labels and timestamps (`format_diarized_transcript`)
+  - `level_monitor.py`: `AudioLevelMonitor` — framework-agnostic, push-based peak accumulator (no sounddevice streams). Pipeline feeds RMS values via `push_mic()`/`push_loop()` from its recording callbacks; consumers call `get_and_reset_peaks()` at their own cadence. Shared between CLI and GUI.
   - `prompt.py`: Multi-prompt resolution from config dict (key-based: "default", "test", etc.)
   - `storage.py`: Save transcripts/JSON conditionally based on keep_transcript_files
   - `clipboard.py`: Cross-platform clipboard copy
@@ -30,7 +31,7 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
   - `openai.py`: OpenAI Whisper implementation
   - `__init__.py`: Provider registry (get_provider)
 - **svx/ui/**:
-  - `qt_app.py`: PySide6 GUI (RecorderWindow/Worker) using Pipeline; dynamic buttons per prompt key; persistent checkboxes for `keep_raw_audio` / `keep_compressed_audio` via QSettings (override TOML without editing it)
+  - `qt_app.py`: PySide6 GUI (RecorderWindow/Worker) using Pipeline; dynamic buttons per prompt key; persistent checkboxes for `keep_raw_audio` / `keep_compressed_audio` via QSettings (override TOML without editing it). `AudioLevelMonitor` Qt adapter wraps `_CoreMonitor` (push mode) and emits `levels(mic, loop)` at 20 Hz via QTimer.
 
 ### Execution Flow
 
@@ -41,7 +42,13 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
    - CLI: Uses "default" prompt key unless --prompt/--prompt-file overrides
    - GUI: Dynamic buttons for each [prompt.key]; "Transcribe" button bypasses prompt
    - Priority: CLI arg > config [prompt.key] > user prompt file > fallback
-5. **Pipeline Execution** (RecordingPipeline) — 2-step pipeline:
+5. **CLI Live Display** (TTY only): While the pipeline runs in a background thread, the main thread drives a Rich `Live` animated panel refreshed at 20 Hz:
+   - MIC bar always shown; LOOP bar shown when `loopback_device` is configured
+   - Segmented meter: cyan → amber → red zones with peak-hold marker
+   - Info line: model, llm, audio format, language, elapsed MM:SS counter
+   - Falls back to a static panel when stdout is not a TTY
+   - `AudioLevelMonitor` (push mode) accumulates RMS values pushed by the pipeline; no extra audio streams opened
+6. **Pipeline Execution** (RecordingPipeline) — 2-step pipeline:
    - record(): WAV recording via sounddevice (or dual-device via meeting_audio if `loopback_device` configured), temp file if keep_raw_audio=false
    - process(): Optional ffmpeg conversion, then:
      - Auto-chunks if audio duration > `chunk_duration` (default 300s/5min): splits with `chunk_overlap` (default 30s), transcribes each chunk, merges results
@@ -52,11 +59,11 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
    - Long recordings (> chunk_duration) auto-activate save_all (keep audio/transcripts/logs) for data protection
    - Conditional save_transcript (+ raw transcript file when transformation applied), clipboard copy
    - clean(): Temp file + chunk temp dir cleanup
-6. **Transcribe Mode** (CLI only):
+7. **Transcribe Mode** (CLI only):
    - --transcribe flag: No prompt, step 1 only (dedicated transcription endpoint)
    - GUI: --transcribe ignored (warning); use "Transcribe" button instead
-7. **Output**: CLI prints result; GUI emits via callback; temp files auto-deleted unless keep_* enabled
-8. **Dual Audio Capture** (optional): When `loopback_device` is set in config, records mic + system audio via two `sd.InputStream` into a single mono WAV. Per-source gain adjustment via `mic_gain` / `loopback_gain` config (default 1.0). Requires a system loopback driver (BlackHole on macOS, native on Linux/Windows).
+8. **Output**: CLI prints result; GUI emits via callback; temp files auto-deleted unless keep_* enabled
+9. **Dual Audio Capture** (optional): When `loopback_device` is set in config, records mic + system audio via two `sd.InputStream` into a single mono WAV. Per-source gain adjustment via `mic_gain` / `loopback_gain` config (default 1.0). Requires a system loopback driver (BlackHole on macOS, native on Linux/Windows).
 
 ## Build
 ```bash

@@ -98,9 +98,7 @@ def split_wav(
                 end_seconds=end,
             )
         )
-        logging.debug(
-            "Chunk %d: %.1fs - %.1fs -> %s", chunk_idx, start, end, chunk_path
-        )
+        logging.debug("Chunk %d: %.1fs - %.1fs -> %s", chunk_idx, start, end, chunk_path)
 
         chunk_idx += 1
         start += step
@@ -157,23 +155,19 @@ def merge_segments(
         elif i == len(chunks) - 1:
             # Last chunk: keep everything from the midpoint of the overlap with previous chunk
             overlap_mid = (
-                chunks[i - 1].end_seconds
-                - (chunks[i - 1].end_seconds - chunk.start_seconds) / 2
+                chunks[i - 1].end_seconds - (chunks[i - 1].end_seconds - chunk.start_seconds) / 2
             )
             merged.extend(seg for seg in adjusted if seg["start"] >= overlap_mid)
         else:
             # Middle chunk: bounded by both overlap midpoints
             prev_overlap_mid = (
-                chunks[i - 1].end_seconds
-                - (chunks[i - 1].end_seconds - chunk.start_seconds) / 2
+                chunks[i - 1].end_seconds - (chunks[i - 1].end_seconds - chunk.start_seconds) / 2
             )
             next_overlap_mid = (
                 chunk.end_seconds - (chunk.end_seconds - chunks[i + 1].start_seconds) / 2
             )
             merged.extend(
-                seg
-                for seg in adjusted
-                if prev_overlap_mid <= seg["start"] < next_overlap_mid
+                seg for seg in adjusted if prev_overlap_mid <= seg["start"] < next_overlap_mid
             )
 
     merged.sort(key=lambda seg: seg["start"])

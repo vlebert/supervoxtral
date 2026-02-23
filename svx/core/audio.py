@@ -18,6 +18,7 @@ import logging
 import queue
 import subprocess
 import time
+from collections.abc import Callable
 from pathlib import Path
 from threading import Event, Thread
 from typing import Any
@@ -117,6 +118,7 @@ def record_wav(
     device: int | str | None = None,
     duration_seconds: float | None = None,
     stop_event: Event | None = None,
+    level_callback: Callable[[float], None] | None = None,
 ) -> float:
     """
     Record audio from the default (or specified) input device to a WAV file.
@@ -171,6 +173,8 @@ def record_wav(
         if status:
             logging.warning("SoundDevice status: %s", status)
         q.put(indata.copy())
+        if level_callback is not None:
+            level_callback(float(np.sqrt(np.mean(indata**2))))
 
     def writer_thread(wav_file: sf.SoundFile) -> None:
         while not writer_stop.is_set():

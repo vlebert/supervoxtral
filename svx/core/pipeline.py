@@ -49,6 +49,7 @@ class RecordingPipeline:
         outfile_prefix: str | None = None,
         progress_callback: Callable[[str], None] | None = None,
         transcribe_mode: bool = False,
+        level_monitor: object | None = None,
     ) -> None:
         self.cfg = cfg
         self.user_prompt = user_prompt
@@ -57,6 +58,7 @@ class RecordingPipeline:
         self.outfile_prefix = outfile_prefix
         self.progress_callback = progress_callback
         self.transcribe_mode = transcribe_mode
+        self.level_monitor = level_monitor
         self._chunk_dir: Path | None = None  # temp dir for chunk files
         self._recording_base: str | None = None  # base name set during record()
 
@@ -112,6 +114,8 @@ class RecordingPipeline:
                     f"Loopback device '{loopback_device}' not found. "
                     "Check your audio configuration."
                 )
+            _mic_cb = getattr(self.level_monitor, "push_mic", None)
+            _loop_cb = getattr(self.level_monitor, "push_loop", None)
             duration = record_dual_wav(
                 wav_path,
                 mic_device=device,
@@ -120,15 +124,19 @@ class RecordingPipeline:
                 stop_event=stop_for_recording,
                 mic_gain=self.cfg.defaults.mic_gain,
                 loopback_gain=self.cfg.defaults.loopback_gain,
+                mic_level_cb=_mic_cb,
+                loop_level_cb=_loop_cb,
             )
         else:
             self._status("Recording...")
+            _mic_cb = getattr(self.level_monitor, "push_mic", None)
             duration = record_wav(
                 wav_path,
                 samplerate=rate,
                 channels=channels,
                 device=device,
                 stop_event=stop_for_recording,
+                level_callback=_mic_cb,
             )
 
         self._status("Recording completed.")

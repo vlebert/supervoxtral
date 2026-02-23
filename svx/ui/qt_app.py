@@ -181,17 +181,17 @@ class LevelMeterWidget(QWidget):
     _TRACK_H = 8
 
     # Colour zones (segment index thresholds)
-    _WARN_SEG = int(_NUM_SEGS * 0.68)   # amber starts here
-    _CLIP_SEG = int(_NUM_SEGS * 0.86)   # dark-red starts here
+    _WARN_SEG = int(_NUM_SEGS * 0.68)  # amber starts here
+    _CLIP_SEG = int(_NUM_SEGS * 0.86)  # dark-red starts here
 
     # Muted palette — dark enough to feel at home in the #0f1113 theme
-    _COL_OFF    = (13,  26,  34)   # barely-visible inactive segment
-    _COL_ON_LO  = (14, 116, 144)   # dark cyan  (normal signal)
-    _COL_ON_MID = (161,  88,  10)  # dark amber (warning)
-    _COL_ON_HI  = (160,  30,  30)  # dark red   (clip)
-    _COL_PK_LO  = (30,  160, 196)  # peak: brighter cyan
-    _COL_PK_MID = (210, 110,  14)  # peak: brighter amber
-    _COL_PK_HI  = (210,  45,  45)  # peak: brighter red
+    _COL_OFF = (13, 26, 34)  # barely-visible inactive segment
+    _COL_ON_LO = (14, 116, 144)  # dark cyan  (normal signal)
+    _COL_ON_MID = (161, 88, 10)  # dark amber (warning)
+    _COL_ON_HI = (160, 30, 30)  # dark red   (clip)
+    _COL_PK_LO = (30, 160, 196)  # peak: brighter cyan
+    _COL_PK_MID = (210, 110, 14)  # peak: brighter amber
+    _COL_PK_HI = (210, 45, 45)  # peak: brighter red
 
     def __init__(self, label: str, device_name: str = "", parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -254,7 +254,10 @@ class LevelMeterWidget(QWidget):
             font.setPointSize(8)
             p.setFont(font)
             p.drawText(
-                0, 0, self._LABEL_W, mid,
+                0,
+                0,
+                self._LABEL_W,
+                mid,
                 int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
                 self._label,
             )
@@ -266,7 +269,10 @@ class LevelMeterWidget(QWidget):
                 self._device_name, Qt.TextElideMode.ElideRight, self._LABEL_W - 2
             )
             p.drawText(
-                0, mid, self._LABEL_W, h - mid,
+                0,
+                mid,
+                self._LABEL_W,
+                h - mid,
                 int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
                 elided,
             )
@@ -276,7 +282,10 @@ class LevelMeterWidget(QWidget):
             font.setPointSize(8)
             p.setFont(font)
             p.drawText(
-                0, 0, self._LABEL_W, h,
+                0,
+                0,
+                self._LABEL_W,
+                h,
                 int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
                 self._label,
             )
@@ -301,10 +310,9 @@ class LevelMeterWidget(QWidget):
 
 class AudioLevelMonitor(QObject):
     """
-    Monitors audio input levels by opening lightweight read-only streams
-    alongside (and independent from) the recording pipeline streams.
+    Qt adapter around the framework-agnostic AudioLevelMonitor core.
 
-    Emits `levels(mic_rms, loop_rms)` at ~20 Hz.
+    Emits `levels(mic_rms, loop_rms)` at ~20 Hz via a QTimer.
     `loop_rms` is -1.0 when no loopback device is configured.
     """
 
@@ -317,87 +325,37 @@ class AudioLevelMonitor(QObject):
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
-        self._mic_device = mic_device
+        from svx.core.level_monitor import AudioLevelMonitor as _CoreMonitor
+
+        self._core = _CoreMonitor(mic_device=mic_device, loopback_device=loopback_device)
         self._loop_device = loopback_device
         self._mic_rms: float = 0.0
         self._loop_rms: float = 0.0
-        self._mic_stream: object = None
-        self._loop_stream: object = None
         self._timer = QTimer(self)
         self._timer.setInterval(50)  # 20 Hz
         self._timer.timeout.connect(self._emit_and_decay)
 
-    # --- audio callbacks (called from PortAudio real-time thread) ---
-
-    def _mic_cb(self, indata, frames, time_info, status) -> None:  # type: ignore[override]
-        import numpy as np
-
-        rms = float(np.sqrt(np.mean(indata**2)))
-        # Peak-hold between emit frames
-        if rms > self._mic_rms:
-            self._mic_rms = rms
-
-    def _loop_cb(self, indata, frames, time_info, status) -> None:  # type: ignore[override]
-        import numpy as np
-
-        rms = float(np.sqrt(np.mean(indata**2)))
-        if rms > self._loop_rms:
-            self._loop_rms = rms
-
-    # --- public API ---
-
     def start(self) -> None:
-        import sounddevice as sd
-
-        try:
-            self._mic_stream = sd.InputStream(
-                device=self._mic_device,
-                channels=1,
-                dtype="float32",
-                blocksize=2048,
-                callback=self._mic_cb,
-            )
-            self._mic_stream.start()  # type: ignore[union-attr]
-        except Exception:
-            logging.debug("AudioLevelMonitor: could not open mic monitor stream", exc_info=True)
-
-        if self._loop_device is not None:
-            try:
-                self._loop_stream = sd.InputStream(
-                    device=self._loop_device,
-                    channels=1,
-                    dtype="float32",
-                    blocksize=2048,
-                    callback=self._loop_cb,
-                )
-                self._loop_stream.start()  # type: ignore[union-attr]
-            except Exception:
-                logging.debug(
-                    "AudioLevelMonitor: could not open loopback monitor stream", exc_info=True
-                )
-
+        # No stream opening needed: the recording pipeline feeds levels via its
+        # own callbacks (push mode). Just start the polling timer.
         self._timer.start()
 
     def stop(self) -> None:
         self._timer.stop()
-        for stream in (self._mic_stream, self._loop_stream):
-            if stream is not None:
-                try:
-                    stream.stop()  # type: ignore[union-attr]
-                    stream.close()  # type: ignore[union-attr]
-                except Exception:
-                    pass
-        self._mic_stream = None
-        self._loop_stream = None
+        self._core.stop()
         self._mic_rms = 0.0
         self._loop_rms = 0.0
 
     def _emit_and_decay(self) -> None:
-        loop_rms = self._loop_rms if self._loop_device is not None else -1.0
-        self.levels.emit(self._mic_rms, loop_rms)
-        # Natural decay so the meter falls during silence
-        self._mic_rms *= 0.6
-        self._loop_rms *= 0.6
+        mic_peak, loop_peak = self._core.get_and_reset_peaks()
+        # Peak-hold with decay so the meter falls smoothly between frames
+        self._mic_rms = max(mic_peak, self._mic_rms * 0.6)
+        if loop_peak >= 0.0:
+            self._loop_rms = max(loop_peak, self._loop_rms * 0.6)
+        else:
+            self._loop_rms = self._loop_rms * 0.6
+        loop_out = self._loop_rms if self._loop_device is not None else -1.0
+        self.levels.emit(self._mic_rms, loop_out)
 
 
 class RecorderWorker(QObject):
@@ -423,6 +381,7 @@ class RecorderWorker(QObject):
         save_all: bool = False,
         outfile_prefix: str | None = None,
         review_mode: bool = False,
+        level_monitor: object | None = None,
     ) -> None:
         super().__init__()
         self.cfg = cfg
@@ -430,6 +389,7 @@ class RecorderWorker(QObject):
         self.user_prompt_file = user_prompt_file
         self.save_all = save_all
         self.outfile_prefix = outfile_prefix
+        self.level_monitor = level_monitor
         self.mode: str | None = None
         self.cancel_requested: bool = False
         self.review_mode = review_mode
@@ -472,6 +432,7 @@ class RecorderWorker(QObject):
                 save_all=self.save_all,
                 outfile_prefix=self.outfile_prefix,
                 progress_callback=self.status.emit,
+                level_monitor=self.level_monitor,
             )
             self.status.emit("Recording in progress...")
             wav_path, duration = pipeline.record(self._stop_event)
@@ -621,8 +582,7 @@ class ResultDialog(QDialog):
         transcript_path = paths.get("transcript") or paths.get("txt")
         if isinstance(transcript_path, Path):
             link_label = QLabel(
-                f'<a href="{transcript_path.as_uri()}" style="color:#5ea8ff;">'
-                f"{transcript_path}</a>"
+                f'<a href="{transcript_path.as_uri()}" style="color:#5ea8ff;">{transcript_path}</a>'
             )
             link_label.setOpenExternalLinks(True)
             link_label.setTextFormat(Qt.TextFormat.RichText)
@@ -679,7 +639,6 @@ def _get_default_input_name() -> str:
         return "unknown"
 
 
-
 class RecorderWindow(QWidget):
     """
     Frameless always-on-top window with Transcribe and Prompt buttons.
@@ -707,9 +666,7 @@ class RecorderWindow(QWidget):
         self.outfile_prefix = outfile_prefix
         self.prompt_keys = sorted(self.cfg.prompt.prompts.keys())
         self._settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
-        self._review_mode: bool = bool(
-            self._settings.value(_KEY_REVIEW_MODE, False, type=bool)
-        )
+        self._review_mode: bool = bool(self._settings.value(_KEY_REVIEW_MODE, False, type=bool))
         if self._settings.contains(_KEY_KEEP_RAW_AUDIO):
             _keep_raw = bool(self._settings.value(_KEY_KEEP_RAW_AUDIO, type=bool))
         else:
@@ -727,6 +684,15 @@ class RecorderWindow(QWidget):
         self.cfg.defaults.keep_compressed_audio = _keep_compressed
         self.cfg.defaults.keep_transcript_files = _keep_transcripts
 
+        # Audio level monitor — created first so its core can be shared with the worker.
+        # The pipeline feeds levels via its recording callbacks (push mode); no extra
+        # audio streams are opened by the monitor itself.
+        self._level_monitor = AudioLevelMonitor(
+            mic_device=None,
+            loopback_device=self.cfg.defaults.loopback_device,
+            parent=self,
+        )
+
         # Background worker (create early for signal connections)
         self._worker = RecorderWorker(
             cfg=self.cfg,
@@ -734,6 +700,7 @@ class RecorderWindow(QWidget):
             user_prompt_file=user_prompt_file,
             save_all=save_all,
             outfile_prefix=outfile_prefix,
+            level_monitor=self._level_monitor._core,
         )
         self._thread = threading.Thread(target=self._worker.run, daemon=True)
 
@@ -783,16 +750,10 @@ class RecorderWindow(QWidget):
         else:
             self._loop_meter = None
 
-        # Audio level monitor (separate monitoring streams, independent from recording)
-        self._level_monitor = AudioLevelMonitor(
-            mic_device=None,
-            loopback_device=self.cfg.defaults.loopback_device,
-            parent=self,
-        )
         self._level_monitor.levels.connect(self._on_levels)
 
         # Config info line: model / chat model / audio format / language
-        _k = "color:#3d5a72"   # key label colour (dimmed)
+        _k = "color:#3d5a72"  # key label colour (dimmed)
         _sep = "<span style='color:#1c2e3c'> · </span>"
         model_html = (
             f"<span style='{_k}'>model:</span> "
@@ -923,6 +884,12 @@ class RecorderWindow(QWidget):
             existing = app.styleSheet() or ""
             app.setStyleSheet(existing + DARK_MONO_STYLESHEET)
 
+        # Elapsed-time timer — updated every second while recording
+        self._record_start_time: float | None = None
+        self._elapsed_timer = QTimer(self)
+        self._elapsed_timer.setInterval(1000)
+        self._elapsed_timer.timeout.connect(self._update_elapsed_display)
+
         # Start recording and level monitoring simultaneously
         self._thread.start()
         self._level_monitor.start()
@@ -942,12 +909,23 @@ class RecorderWindow(QWidget):
             self._loop_meter.set_level(loop_rms)
 
     def _on_status(self, msg: str) -> None:
+        if msg == "Recording in progress...":
+            self._record_start_time = time.monotonic()
+            self._elapsed_timer.start()
+        elif msg in ("Recording finished.", "Processing in progress..."):
+            self._elapsed_timer.stop()
         self._set_status(msg)
+
+    def _update_elapsed_display(self) -> None:
+        if self._record_start_time is None:
+            return
+        elapsed = int(time.monotonic() - self._record_start_time)
+        mins, secs = divmod(elapsed, 60)
+        self._set_status(f"Recording in progress... {mins:02d}:{secs:02d}")
 
     def _set_status(self, msg: str) -> None:
         self._status_label.setText(
-            f"<span style='color:#3d5a72'>Status:</span>"
-            f" <span style='color:#cfe8ff'>{msg}</span>"
+            f"<span style='color:#3d5a72'>Status:</span> <span style='color:#cfe8ff'>{msg}</span>"
         )
 
     def _on_done(self, text: str, raw_transcript: str, paths: object) -> None:
@@ -997,6 +975,7 @@ class RecorderWindow(QWidget):
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         # Attempt to stop recording if the user closes the window via window controls.
+        self._elapsed_timer.stop()
         self._level_monitor.stop()
         self._worker.cancel()
         super().closeEvent(event)
@@ -1013,6 +992,7 @@ class RecorderWindow(QWidget):
         self._config_dir_btn.setEnabled(False)
 
     def _on_mode_selected(self, mode: str) -> None:
+        self._elapsed_timer.stop()
         self._level_monitor.stop()
         self._freeze_controls()
         self._set_status("Stopping and processing...")
@@ -1021,6 +1001,7 @@ class RecorderWindow(QWidget):
         self._worker.stop()
 
     def _on_cancel_clicked(self) -> None:
+        self._elapsed_timer.stop()
         self._level_monitor.stop()
         self._freeze_controls()
         self._set_status("Canceling...")
