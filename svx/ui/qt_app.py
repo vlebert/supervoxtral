@@ -877,6 +877,12 @@ class RecorderWindow(QWidget):
             existing = app.styleSheet() or ""
             app.setStyleSheet(existing + DARK_MONO_STYLESHEET)
 
+        # Elapsed-time timer — updated every second while recording
+        self._record_start_time: float | None = None
+        self._elapsed_timer = QTimer(self)
+        self._elapsed_timer.setInterval(1000)
+        self._elapsed_timer.timeout.connect(self._update_elapsed_display)
+
         # Start recording and level monitoring simultaneously
         self._thread.start()
         self._level_monitor.start()
@@ -896,7 +902,19 @@ class RecorderWindow(QWidget):
             self._loop_meter.set_level(loop_rms)
 
     def _on_status(self, msg: str) -> None:
+        if msg == "Recording in progress...":
+            self._record_start_time = time.monotonic()
+            self._elapsed_timer.start()
+        elif msg in ("Recording finished.", "Processing in progress..."):
+            self._elapsed_timer.stop()
         self._set_status(msg)
+
+    def _update_elapsed_display(self) -> None:
+        if self._record_start_time is None:
+            return
+        elapsed = int(time.monotonic() - self._record_start_time)
+        mins, secs = divmod(elapsed, 60)
+        self._set_status(f"Recording in progress... {mins:02d}:{secs:02d}")
 
     def _set_status(self, msg: str) -> None:
         self._status_label.setText(
@@ -951,6 +969,7 @@ class RecorderWindow(QWidget):
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         # Attempt to stop recording if the user closes the window via window controls.
+        self._elapsed_timer.stop()
         self._level_monitor.stop()
         self._worker.cancel()
         super().closeEvent(event)
@@ -967,6 +986,7 @@ class RecorderWindow(QWidget):
         self._config_dir_btn.setEnabled(False)
 
     def _on_mode_selected(self, mode: str) -> None:
+        self._elapsed_timer.stop()
         self._level_monitor.stop()
         self._freeze_controls()
         self._set_status("Stopping and processing...")
@@ -975,6 +995,7 @@ class RecorderWindow(QWidget):
         self._worker.stop()
 
     def _on_cancel_clicked(self) -> None:
+        self._elapsed_timer.stop()
         self._level_monitor.stop()
         self._freeze_controls()
         self._set_status("Canceling...")
