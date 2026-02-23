@@ -263,7 +263,12 @@ def _record_with_live_display(
     no separate audio streams are opened here.
 
     Falls back to a static panel when stdout is not a TTY (e.g. piped output).
-    Blocks until the user presses Enter (sets stop_event).
+    Blocks until stop_event is set (user pressed Enter or stdin reached EOF).
+
+    The caller is responsible for starting the pipeline thread before calling this
+    function, and for joining it afterward. All output (logging + progress_cb) must
+    be routed through the same Console instance used by this function — the caller
+    should install a RichHandler on the root logger before calling this.
 
     Args:
         cfg: Current Config instance.
@@ -271,8 +276,8 @@ def _record_with_live_display(
         monitor: AudioLevelMonitor instance shared with the pipeline.
     """
     if not sys.stdout.isatty():
-        # Non-TTY fallback: print static message and start Enter-waiter in background.
-        # The caller runs the pipeline in its own background thread and joins it.
+        # Non-TTY fallback: static message + background Enter-waiter thread.
+        # Returns immediately; caller blocks on pipeline_thread.join().
         console.print(Panel.fit("Recording... Press Enter to stop.", title="SuperVoxtral"))
 
         def _wait_static() -> None:
@@ -284,11 +289,11 @@ def _record_with_live_display(
                 stop_event.set()
 
         threading.Thread(target=_wait_static, daemon=True).start()
-        return  # non-blocking: caller handles joining the pipeline thread
+        return
 
     from rich.live import Live
 
-    # Resolve mic name once — sd.query_devices is not free to call in a tight loop.
+    # Resolve mic name once — sd.query_devices is not cheap.
     try:
         import sounddevice as sd
 
@@ -301,8 +306,9 @@ def _record_with_live_display(
     loop_display: float = 0.0
     loop_peak: float = 0.0
     start_time = time.monotonic()
+    get_peaks = getattr(monitor, "get_and_reset_peaks", None)
 
-    # Background thread: waits for Enter, then sets stop_event
+    # Background thread: waits for Enter, then sets stop_event.
     def _wait_enter() -> None:
         try:
             sys.stdin.readline()
@@ -313,9 +319,6 @@ def _record_with_live_display(
 
     threading.Thread(target=_wait_enter, daemon=True).start()
 
-    refresh_interval = 0.05  # 20 Hz
-    get_peaks = getattr(monitor, "get_and_reset_peaks", None)
-
     with Live(
         _make_live_renderable(cfg, mic_name, 0.0, 0.0, 0.0, 0.0, 0.0),
         refresh_per_second=20,
@@ -325,7 +328,6 @@ def _record_with_live_display(
         while not stop_event.is_set():
             mic_rms, loop_rms = get_peaks() if get_peaks else (0.0, -1.0)
 
-            # Log-scale + decay
             mic_display = max(_log_scale(mic_rms), mic_display * 0.82)
             if mic_display > mic_peak:
                 mic_peak = mic_display
@@ -343,7 +345,7 @@ def _record_with_live_display(
                     cfg, mic_name, mic_display, mic_peak, loop_display, loop_peak, elapsed
                 )
             )
-            time.sleep(refresh_interval)
+            time.sleep(0.05)  # 20 Hz
 
 
 @app.command()
@@ -440,6 +442,27 @@ def record(
         )
         return
 
+    # Replace the root logger's stdout StreamHandler with RichHandler so that
+    # logging.info() calls from pipeline threads go through the same Console
+    # instance as the Rich Live display. Without this, raw text written directly
+    # to stdout by the logging StreamHandler desynchronises Live's cursor tracking
+    # and produces ghost/duplicate panel lines.
+    from rich.logging import RichHandler
+
+    _root_logger = logging.getLogger()
+    _old_handlers = [
+        h
+        for h in list(_root_logger.handlers)
+        if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
+    ]
+    _rich_handler = RichHandler(console=console, show_path=False, markup=False)
+    # Mirror the level of the handler being replaced, not the root logger level.
+    # The two can differ when config.toml's log_level overrides the CLI --log-level arg.
+    _rich_handler.setLevel(_old_handlers[0].level if _old_handlers else _root_logger.level)
+    for h in _old_handlers:
+        _root_logger.removeHandler(h)
+    _root_logger.addHandler(_rich_handler)
+
     try:
 
         def progress_cb(msg: str) -> None:
@@ -480,8 +503,8 @@ def record(
         _pipeline_thread = threading.Thread(target=_run_pipeline, daemon=True)
         _pipeline_thread.start()
 
-        # Show animated live display (TTY) or just wait (non-TTY).
-        # Returns only after stop_event is set (user pressed Enter).
+        # Show animated live display (TTY) or static panel (non-TTY).
+        # Blocks until stop_event is set (user pressed Enter).
         _record_with_live_display(cfg, stop_event, _monitor)
 
         # Wait for pipeline to finish processing after recording stopped.
@@ -513,6 +536,11 @@ def record(
         logging.exception("Error in record command")
         typer.secho(f"Error: {e}", fg=typer.colors.RED)
         raise typer.Exit(code=1)
+    finally:
+        # Restore original stdout handlers (removed in favour of RichHandler above).
+        _root_logger.removeHandler(_rich_handler)
+        for h in _old_handlers:
+            _root_logger.addHandler(h)
 
 
 if __name__ == "__main__":
