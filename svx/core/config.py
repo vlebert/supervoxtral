@@ -291,7 +291,7 @@ def init_user_config(force: bool = False, prompt_file: Path | None = None) -> Pa
         "[prompt.default]\n"
         "# Default user prompt source:\n"
         "# - Option 1: Use a file (recommended)\n"
-        f'file = "{str(prompt_file)}"\n'
+        f'file = "{prompt_file.as_posix()}"\n'
         "#\n"
         "# - Option 2: Inline prompt (less recommended for long text)\n"
         '# text = "Please transcribe the audio and provide a concise summary in French."\n'
