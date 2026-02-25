@@ -241,8 +241,8 @@ chat_model = "mistral-small-latest"
 language = "fr"
 
 # Context bias: up to 100 words/phrases to help recognize specific vocabulary
-# (proper nouns, technical terms, brand names, etc.)
-# context_bias = ["SuperVoxtral", "Mistral AI", "Voxtral"]
+# (proper nouns, technical terms, brand names, etc. without spaces)
+# context_bias = ["SuperVoxtral", "Mistral", "AI", "Voxtral"]
 context_bias = []
 
 # Speaker diarization (identify speakers in transcription)
