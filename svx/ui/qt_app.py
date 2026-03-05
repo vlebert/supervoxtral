@@ -539,6 +539,7 @@ class ProcessFileWorker(QObject):
         return resolve_user_prompt(self.cfg, None, None, self.cfg.user_prompt_dir, key=key)
 
     def run(self) -> None:
+        pipeline: RecordingPipeline | None = None
         try:
             transcribe_mode = self.mode == "transcribe"
             user_prompt: str | None = None
@@ -560,6 +561,9 @@ class ProcessFileWorker(QObject):
             self.done.emit(result["text"], result["raw_transcript"], result["paths"])
         except Exception as e:
             logging.exception("File processing pipeline failed")
+            # Ensure temp dirs are cleaned up even when process() raised before clean() was called
+            if pipeline is not None:
+                pipeline.clean(self.audio_path, {}, keep_raw=True, keep_compressed=False)
             self.error.emit(str(e))
 
 
@@ -1080,6 +1084,9 @@ class RecorderWindow(QWidget):
 
     def _on_process_file(self) -> None:
         """Show mode menu → file dialog → cancel recording → start file processing."""
+        # Disable immediately to prevent concurrent workers while dialogs are open
+        self._process_file_btn.setEnabled(False)
+
         # Build mode selection popup menu
         menu = QMenu(self)
         transcribe_action = menu.addAction("Transcribe")
@@ -1090,6 +1097,7 @@ class RecorderWindow(QWidget):
                 prompt_actions[action] = key
         chosen = menu.exec(QCursor.pos())
         if chosen is None:
+            self._process_file_btn.setEnabled(True)
             return
 
         if chosen == transcribe_action:
@@ -1101,6 +1109,7 @@ class RecorderWindow(QWidget):
         audio_filter = "Audio Files (*.wav *.mp3 *.m4a *.ogg *.flac *.opus);;All Files (*)"
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Audio File", "", audio_filter)
         if not file_path:
+            self._process_file_btn.setEnabled(True)
             return
 
         audio_path = Path(file_path)

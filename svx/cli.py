@@ -625,11 +625,17 @@ def process(
 
         audio_path = audio_file.resolve()
         console.print(f"Processing [bold]{audio_path.name}[/bold]...")
-        result = pipeline.process(audio_path, 0.0, transcribe, resolved_prompt)
-
-        keep_compressed = save_all or cfg.defaults.keep_compressed_audio
-        # keep_raw=True is mandatory — never delete the user's original file
-        pipeline.clean(audio_path, result["paths"], keep_raw=True, keep_compressed=keep_compressed)
+        try:
+            result = pipeline.process(audio_path, 0.0, transcribe, resolved_prompt)
+            keep_compressed = save_all or cfg.defaults.keep_compressed_audio
+            # keep_raw=True is mandatory — never delete the user's original file
+            pipeline.clean(
+                audio_path, result["paths"], keep_raw=True, keep_compressed=keep_compressed
+            )
+        except Exception:
+            # Ensure temp dirs are cleaned up even when process() raised before clean() was called
+            pipeline.clean(audio_path, {}, keep_raw=True, keep_compressed=False)
+            raise
 
         text = result["text"]
         duration = result["duration"]
