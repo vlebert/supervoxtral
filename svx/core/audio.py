@@ -106,6 +106,8 @@ def convert_audio(input_wav: Path, fmt: str, output_dir: Path | None = None) -> 
             "libopus",
             "-b:a",
             "24k",
+            "-application",
+            "voip",
             str(output_path),
         ]
 
