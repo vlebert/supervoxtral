@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QPoint, QSettings, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QAction, QCursor, QDesktopServices, QFont, QFontDatabase, QKeySequence
+from PySide6.QtGui import QAction, QDesktopServices, QFont, QFontDatabase, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -32,7 +32,6 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
-    QMenu,
     QMessageBox,
     QPushButton,
     QSplitter,
@@ -947,16 +946,15 @@ class RecorderWindow(QWidget):
         file_btn_layout.addStretch()
         layout.addLayout(file_btn_layout)
 
-        self._action_buttons = (
-            [self._transcribe_btn] + list(self._prompt_buttons.values()) + [self._process_file_btn]
-        )
+        self._action_buttons = [self._transcribe_btn] + list(self._prompt_buttons.values())
         self._file_worker: ProcessFileWorker | None = None
         self._file_thread: threading.Thread | None = None
+        self._pending_file: Path | None = None  # set when a file is loaded, waiting for mode
 
-        # Keyboard shortcut: Esc to stop
+        # Keyboard shortcut: Esc → cancel / close
         stop_action = QAction(self)
         stop_action.setShortcut(QKeySequence.StandardKey.Cancel)  # Esc
-        stop_action.triggered.connect(lambda: self._worker.cancel())
+        stop_action.triggered.connect(self._on_cancel_clicked)
         self.addAction(stop_action)
 
         # Signals wiring
@@ -1075,6 +1073,7 @@ class RecorderWindow(QWidget):
         """Disable all interactive controls once processing or cancel is triggered."""
         for btn in self._action_buttons:
             btn.setEnabled(False)
+        self._process_file_btn.setEnabled(False)
         self._cancel_btn.setEnabled(False)
         self._keep_raw_checkbox.setEnabled(False)
         self._keep_compressed_checkbox.setEnabled(False)
@@ -1083,46 +1082,33 @@ class RecorderWindow(QWidget):
         self._config_dir_btn.setEnabled(False)
 
     def _on_process_file(self) -> None:
-        """Show mode menu → file dialog → cancel recording → start file processing."""
-        # Disable immediately to prevent concurrent workers while dialogs are open
+        """Open file dialog → stop recording → wait for user to pick a mode."""
+        # Disable immediately to prevent a second click while the dialog is open
         self._process_file_btn.setEnabled(False)
 
-        # Build mode selection popup menu
-        menu = QMenu(self)
-        transcribe_action = menu.addAction("Transcribe")
-        prompt_actions: dict[QAction, str] = {}
-        for key in self.prompt_keys:
-            action = menu.addAction(key.capitalize())
-            if action is not None:
-                prompt_actions[action] = key
-        chosen = menu.exec(QCursor.pos())
-        if chosen is None:
-            self._process_file_btn.setEnabled(True)
-            return
-
-        if chosen == transcribe_action:
-            mode = "transcribe"
-        else:
-            mode = prompt_actions.get(chosen, "transcribe")
-
-        # Pick audio file
         audio_filter = "Audio Files (*.wav *.mp3 *.m4a *.ogg *.flac *.opus);;All Files (*)"
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Audio File", "", audio_filter)
         if not file_path:
             self._process_file_btn.setEnabled(True)
             return
 
-        audio_path = Path(file_path)
-        self._freeze_controls()
+        self._pending_file = Path(file_path)
         self._elapsed_timer.stop()
         self._level_monitor.stop()
-        self._set_status(f"Processing {audio_path.name}...")
 
-        # Disconnect the canceled signal from _close_soon so canceling the recording
-        # doesn't close the window — we'll start file processing instead.
+        # Redirect the canceled signal: instead of closing the window, show the
+        # "file loaded" state so the user can pick a mode from the existing buttons.
         self._worker.canceled.disconnect(self._close_soon)
-        self._worker.canceled.connect(lambda: self._start_file_processing(audio_path, mode))
+        self._worker.canceled.connect(self._on_recording_discarded_for_file)
         self._worker.cancel_discard()
+
+    def _on_recording_discarded_for_file(self) -> None:
+        """Called once the in-progress recording has been discarded for file processing."""
+        if self._pending_file is None:
+            return
+        self._set_status(
+            f"{self._pending_file.name} loaded \u2014 choose action"
+        )
 
     def _start_file_processing(self, audio_path: Path, mode: str) -> None:
         """Create and start a ProcessFileWorker for the given file and mode."""
@@ -1142,17 +1128,30 @@ class RecorderWindow(QWidget):
         self._elapsed_timer.stop()
         self._level_monitor.stop()
         self._freeze_controls()
-        self._set_status("Stopping and processing...")
-        self._worker.set_review_mode(self._review_mode)
-        self._worker.set_mode(mode)
-        self._worker.stop()
+        if self._pending_file is not None:
+            # File-loaded state: process the pending file with the chosen mode
+            audio_path = self._pending_file
+            self._pending_file = None
+            self._set_status(f"Processing {audio_path.name}...")
+            self._start_file_processing(audio_path, mode)
+        else:
+            # Normal recording state: stop recording and process the WAV
+            self._set_status("Stopping and processing...")
+            self._worker.set_review_mode(self._review_mode)
+            self._worker.set_mode(mode)
+            self._worker.stop()
 
     def _on_cancel_clicked(self) -> None:
         self._elapsed_timer.stop()
         self._level_monitor.stop()
         self._freeze_controls()
-        self._set_status("Canceling...")
-        self._worker.cancel()
+        if self._pending_file is not None:
+            # File-loaded state: discard the pending file and close
+            self._pending_file = None
+            self._close_soon()
+        else:
+            self._set_status("Canceling...")
+            self._worker.cancel()
 
     # --- Drag handling for frameless window ---
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
@@ -1179,11 +1178,10 @@ class RecorderWindow(QWidget):
         else:
             super().mouseReleaseEvent(event)
 
-    # Support pressing Esc as an alternative to clicking Stop
+    # Support pressing Esc as an alternative to clicking Cancel
     def keyPressEvent(self, event) -> None:  # type: ignore[override]
-        # Qt.Key_Escape is a safety stop
         if event.key() == Qt.Key.Key_Escape:
-            self._worker.cancel()
+            self._on_cancel_clicked()
         else:
             super().keyPressEvent(event)
 
