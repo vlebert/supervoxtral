@@ -24,13 +24,15 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QPoint, QSettings, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QAction, QDesktopServices, QFont, QFontDatabase, QKeySequence
+from PySide6.QtGui import QAction, QCursor, QDesktopServices, QFont, QFontDatabase, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSplitter,
@@ -392,6 +394,7 @@ class RecorderWorker(QObject):
         self.level_monitor = level_monitor
         self.mode: str | None = None
         self.cancel_requested: bool = False
+        self._force_discard: bool = False
         self.review_mode = review_mode
         self._stop_event = threading.Event()
 
@@ -406,6 +409,12 @@ class RecorderWorker(QObject):
         self._stop_event.set()
 
     def cancel(self) -> None:
+        self.cancel_requested = True
+        self._stop_event.set()
+
+    def cancel_discard(self) -> None:
+        """Cancel and force-discard the recording regardless of keep_raw settings."""
+        self._force_discard = True
         self.cancel_requested = True
         self._stop_event.set()
 
@@ -438,7 +447,11 @@ class RecorderWorker(QObject):
             wav_path, duration = pipeline.record(self._stop_event)
             self.status.emit("Recording finished.")
             if self.cancel_requested:
-                keep_raw = self.save_all or self.cfg.defaults.keep_raw_audio
+                keep_raw = (
+                    False
+                    if self._force_discard
+                    else (self.save_all or self.cfg.defaults.keep_raw_audio)
+                )
                 keep_compressed = self.save_all or self.cfg.defaults.keep_compressed_audio
                 pipeline.clean(
                     wav_path, {"wav": wav_path}, keep_raw=keep_raw, keep_compressed=keep_compressed
@@ -490,6 +503,63 @@ class RecorderWorker(QObject):
             self.done.emit(result["text"], result["raw_transcript"], result["paths"])
         except Exception as e:
             logging.exception("Pipeline failed")
+            self.error.emit(str(e))
+
+
+class ProcessFileWorker(QObject):
+    """
+    Worker that runs an existing audio file through the transcription pipeline in a background
+    thread. Unlike RecorderWorker, there is no recording step — the file is fed directly into
+    pipeline.process().
+
+    Signals:
+        status (str): human-readable status updates for the UI.
+        done (str, str, object): emitted with (text, raw_transcript, paths) on success.
+        error (str): emitted with an error message on failure.
+    """
+
+    status = Signal(str)
+    done = Signal(str, str, object)  # text, raw_transcript, paths
+    error = Signal(str)
+
+    def __init__(
+        self,
+        cfg: Config,
+        audio_path: Path,
+        mode: str,
+        save_all: bool = False,
+    ) -> None:
+        super().__init__()
+        self.cfg = cfg
+        self.audio_path = audio_path
+        self.mode = mode
+        self.save_all = save_all
+
+    def _resolve_user_prompt(self, key: str) -> str:
+        return resolve_user_prompt(self.cfg, None, None, self.cfg.user_prompt_dir, key=key)
+
+    def run(self) -> None:
+        try:
+            transcribe_mode = self.mode == "transcribe"
+            user_prompt: str | None = None
+            if not transcribe_mode:
+                user_prompt = self._resolve_user_prompt(self.mode)
+
+            pipeline = RecordingPipeline(
+                cfg=self.cfg,
+                save_all=self.save_all,
+                progress_callback=self.status.emit,
+            )
+            self.status.emit(f"Processing {self.audio_path.name}...")
+            result = pipeline.process(self.audio_path, 0.0, transcribe_mode, user_prompt)
+            keep_compressed = self.save_all or self.cfg.defaults.keep_compressed_audio
+            # keep_raw=True is mandatory — never delete the user's original file
+            pipeline.clean(
+                self.audio_path, result["paths"], keep_raw=True, keep_compressed=keep_compressed
+            )
+            self.done.emit(result["text"], result["raw_transcript"], result["paths"])
+        except Exception as e:
+            logging.exception("File processing pipeline failed")
             self.error.emit(str(e))
 
 
@@ -861,7 +931,23 @@ class RecorderWindow(QWidget):
         button_widget.setLayout(button_layout)
         layout.addWidget(button_widget, 0, Qt.AlignmentFlag.AlignCenter)
 
-        self._action_buttons = [self._transcribe_btn] + list(self._prompt_buttons.values())
+        # "Process file..." row — feeds an existing audio file into the pipeline
+        file_btn_layout = QHBoxLayout()
+        file_btn_layout.addStretch()
+        self._process_file_btn = QPushButton("Process file...")
+        self._process_file_btn.setToolTip(
+            "Select an existing audio file to transcribe or transform"
+        )
+        self._process_file_btn.clicked.connect(self._on_process_file)
+        file_btn_layout.addWidget(self._process_file_btn)
+        file_btn_layout.addStretch()
+        layout.addLayout(file_btn_layout)
+
+        self._action_buttons = (
+            [self._transcribe_btn] + list(self._prompt_buttons.values()) + [self._process_file_btn]
+        )
+        self._file_worker: ProcessFileWorker | None = None
+        self._file_thread: threading.Thread | None = None
 
         # Keyboard shortcut: Esc to stop
         stop_action = QAction(self)
@@ -978,6 +1064,7 @@ class RecorderWindow(QWidget):
         self._elapsed_timer.stop()
         self._level_monitor.stop()
         self._worker.cancel()
+        # File processing runs in a daemon thread; no explicit stop needed.
         super().closeEvent(event)
 
     def _freeze_controls(self) -> None:
@@ -990,6 +1077,57 @@ class RecorderWindow(QWidget):
         self._keep_transcripts_checkbox.setEnabled(False)
         self._review_checkbox.setEnabled(False)
         self._config_dir_btn.setEnabled(False)
+
+    def _on_process_file(self) -> None:
+        """Show mode menu → file dialog → cancel recording → start file processing."""
+        # Build mode selection popup menu
+        menu = QMenu(self)
+        transcribe_action = menu.addAction("Transcribe")
+        prompt_actions: dict[QAction, str] = {}
+        for key in self.prompt_keys:
+            action = menu.addAction(key.capitalize())
+            if action is not None:
+                prompt_actions[action] = key
+        chosen = menu.exec(QCursor.pos())
+        if chosen is None:
+            return
+
+        if chosen == transcribe_action:
+            mode = "transcribe"
+        else:
+            mode = prompt_actions.get(chosen, "transcribe")
+
+        # Pick audio file
+        audio_filter = "Audio Files (*.wav *.mp3 *.m4a *.ogg *.flac *.opus);;All Files (*)"
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Audio File", "", audio_filter)
+        if not file_path:
+            return
+
+        audio_path = Path(file_path)
+        self._freeze_controls()
+        self._elapsed_timer.stop()
+        self._level_monitor.stop()
+        self._set_status(f"Processing {audio_path.name}...")
+
+        # Disconnect the canceled signal from _close_soon so canceling the recording
+        # doesn't close the window — we'll start file processing instead.
+        self._worker.canceled.disconnect(self._close_soon)
+        self._worker.canceled.connect(lambda: self._start_file_processing(audio_path, mode))
+        self._worker.cancel_discard()
+
+    def _start_file_processing(self, audio_path: Path, mode: str) -> None:
+        """Create and start a ProcessFileWorker for the given file and mode."""
+        self._file_worker = ProcessFileWorker(
+            cfg=self.cfg,
+            audio_path=audio_path,
+            mode=mode,
+            save_all=self.save_all,
+        )
+        self._file_thread = threading.Thread(target=self._file_worker.run, daemon=True)
+        self._file_worker.status.connect(self._on_status)
+        self._file_worker.done.connect(self._on_done)
+        self._file_worker.error.connect(self._on_error)
+        self._file_thread.start()
 
     def _on_mode_selected(self, mode: str) -> None:
         self._elapsed_timer.stop()

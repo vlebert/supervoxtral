@@ -551,5 +551,107 @@ def record(
             _root_logger.addHandler(h)
 
 
+@app.command()
+def process(
+    audio_file: Path = typer.Argument(..., help="Path to the existing audio file to process."),
+    user_prompt: str | None = typer.Option(
+        None,
+        "--user-prompt",
+        "--prompt",
+        help="User prompt text (inline) to use for this run.",
+    ),
+    user_prompt_file: Path | None = typer.Option(
+        None,
+        "--user-prompt-file",
+        "--prompt-file",
+        help="Path to a text file containing the user prompt for this run.",
+    ),
+    transcribe: bool = typer.Option(
+        False,
+        "--transcribe",
+        help="Use pure transcription mode (no prompt, dedicated endpoint).",
+    ),
+    save_all: bool = typer.Option(
+        False,
+        "--save-all",
+        help="Override config to keep all files (converted audio, transcripts, logs) for this run.",
+    ),
+    log_level: str = typer.Option(
+        "INFO",
+        "--log-level",
+        help="Logging level (DEBUG, INFO, WARNING, ERROR).",
+    ),
+) -> None:
+    """
+    Process an existing audio file through the transcription pipeline.
+
+    Feeds an existing audio file (WAV, MP3, M4A, FLAC, Opus, OGG) into the same
+    2-step pipeline used by the record command:
+
+    1. Transcription: audio -> text via dedicated transcription endpoint.
+    2. Transformation: text + prompt -> text via text-based LLM (when a prompt is given).
+
+    The original file is NEVER deleted regardless of keep_* config flags.
+    """
+    if not audio_file.exists():
+        console.print(f"[red]File not found: {audio_file}[/red]")
+        raise typer.Exit(code=1)
+
+    cfg = Config.load(log_level=log_level)
+
+    if transcribe and (user_prompt or user_prompt_file):
+        console.print("[yellow]Transcribe mode: prompt is ignored.[/yellow]")
+        user_prompt = None
+        user_prompt_file = None
+
+    try:
+
+        def progress_cb(msg: str) -> None:
+            console.print(f"[bold cyan]{msg}[/bold cyan]")
+
+        pipeline = RecordingPipeline(
+            cfg=cfg,
+            user_prompt=user_prompt,
+            user_prompt_file=user_prompt_file,
+            save_all=save_all,
+            transcribe_mode=transcribe,
+            progress_callback=progress_cb,
+        )
+
+        # Resolve user prompt for the transformation step (mirrors record command logic)
+        resolved_prompt: str | None = None
+        if not transcribe:
+            resolved_prompt = cfg.resolve_prompt(user_prompt, user_prompt_file)
+
+        audio_path = audio_file.resolve()
+        console.print(f"Processing [bold]{audio_path.name}[/bold]...")
+        result = pipeline.process(audio_path, 0.0, transcribe, resolved_prompt)
+
+        keep_compressed = save_all or cfg.defaults.keep_compressed_audio
+        # keep_raw=True is mandatory — never delete the user's original file
+        pipeline.clean(audio_path, result["paths"], keep_raw=True, keep_compressed=keep_compressed)
+
+        text = result["text"]
+        duration = result["duration"]
+        paths = result["paths"]
+
+        console.print(f"Processed in {duration:.1f}s")
+        console.print(Panel.fit(text, title=f"{cfg.defaults.provider.capitalize()} Response"))
+
+        if paths.get("converted") and paths["converted"].exists():
+            console.print(f"Saved audio: {paths['converted']}")
+        if paths.get("txt"):
+            console.print(f"Saved transcript: {paths['txt']}")
+        if paths.get("json"):
+            console.print(f"Saved raw JSON: {paths['json']}")
+        if cfg.defaults.copy:
+            console.print("[green]Copied to clipboard.[/green]")
+
+    except Exception as e:
+        logging.exception("Error in process command")
+        typer.secho(f"Error: {e}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+
 if __name__ == "__main__":
     app()

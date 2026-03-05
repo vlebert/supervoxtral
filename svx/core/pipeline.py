@@ -22,6 +22,25 @@ from svx.providers import get_provider
 from svx.providers.base import Provider, TranscriptionResult, TranscriptionSegment
 
 
+def _needs_conversion(input_path: Path, audio_format: str) -> bool:
+    """
+    Return True if the file must be converted to reach the target audio format.
+
+    Skips conversion when the file is already in a compatible format:
+    - 'mp3' target: skip for .mp3 inputs
+    - 'opus' target: skip for .opus inputs and .ogg inputs (OGG is a container that
+      commonly carries Opus audio and is accepted by transcription APIs directly)
+    """
+    if audio_format not in {"mp3", "opus"}:
+        return False
+    ext = input_path.suffix.lower().lstrip(".")
+    if audio_format == "mp3" and ext == "mp3":
+        return False
+    if audio_format == "opus" and ext in ("opus", "ogg"):
+        return False
+    return True
+
+
 class RecordingPipeline:
     """
     Centralized pipeline for recording audio, transcribing via provider, optionally
@@ -60,6 +79,7 @@ class RecordingPipeline:
         self.transcribe_mode = transcribe_mode
         self.level_monitor = level_monitor
         self._chunk_dir: Path | None = None  # temp dir for chunk files
+        self._convert_dir: Path | None = None  # temp dir for conversion output
         self._recording_base: str | None = None  # base name set during record()
 
     def _status(self, msg: str) -> None:
@@ -316,13 +336,19 @@ class RecordingPipeline:
 
         paths: dict[str, Path | None] = {"wav": wav_path}
 
-        # Convert if needed
+        # Convert only when the file is not already in a compatible format.
+        # Use a dedicated temp directory so conversion output never appears next to the
+        # user's source file (important for the `svx process` command).
         to_send_path = wav_path
-        if audio_format in {"mp3", "opus"}:
+        if _needs_conversion(wav_path, audio_format):
             self._status("Converting...")
-            to_send_path = convert_audio(wav_path, audio_format)
+            if self._convert_dir is None:
+                self._convert_dir = Path(tempfile.mkdtemp(prefix="svx_convert_"))
+            to_send_path = convert_audio(wav_path, audio_format, output_dir=self._convert_dir)
             logging.info("Converted %s -> %s", wav_path, to_send_path)
             paths["converted"] = to_send_path
+        else:
+            logging.info("Skipping conversion: %s already in compatible format", wav_path.name)
 
         # Get actual audio duration from file (fall back to wall-clock duration)
         audio_duration = self._get_audio_duration(to_send_path, fallback=duration)
@@ -456,6 +482,12 @@ class RecordingPipeline:
             shutil.rmtree(self._chunk_dir, ignore_errors=True)
             logging.info("Deleted temp chunk dir: %s", self._chunk_dir)
             self._chunk_dir = None
+
+        # Clean up conversion temp directory (may already be empty if file was moved to recordings)
+        if self._convert_dir and self._convert_dir.exists():
+            shutil.rmtree(self._convert_dir, ignore_errors=True)
+            logging.info("Deleted temp convert dir: %s", self._convert_dir)
+            self._convert_dir = None
 
         self._status("Cleanup completed.")
 
