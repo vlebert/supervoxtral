@@ -120,7 +120,10 @@ def _split_wav(
 
 
 def get_audio_duration(audio_path: Path) -> float:
-    """Return duration in seconds via ffprobe. Raises RuntimeError if ffprobe is unavailable or fails."""
+    """Return duration in seconds via ffprobe.
+
+    Raises RuntimeError if ffprobe is unavailable or fails.
+    """
     try:
         proc = subprocess.run(
             [
