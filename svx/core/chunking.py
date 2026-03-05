@@ -98,7 +98,9 @@ def _split_wav(
         chunk_path = output_dir / f"chunk_{chunk_idx:03d}.wav"
         sf.write(str(chunk_path), data, samplerate, subtype="PCM_16")
 
-        chunks.append(ChunkInfo(index=chunk_idx, path=chunk_path, start_seconds=start, end_seconds=end))
+        chunks.append(
+            ChunkInfo(index=chunk_idx, path=chunk_path, start_seconds=start, end_seconds=end)
+        )
         logging.debug("Chunk %d: %.1fs - %.1fs -> %s", chunk_idx, start, end, chunk_path)
 
         chunk_idx += 1
@@ -108,7 +110,11 @@ def _split_wav(
 
     logging.info(
         "Split %s (%.1fs) into %d chunks of %ds with %ds overlap",
-        wav_path.name, total_duration, len(chunks), chunk_duration, overlap,
+        wav_path.name,
+        total_duration,
+        len(chunks),
+        chunk_duration,
+        overlap,
     )
     return chunks
 
@@ -119,9 +125,12 @@ def get_audio_duration(audio_path: Path) -> float:
         proc = subprocess.run(
             [
                 "ffprobe",
-                "-v", "error",
-                "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
                 str(audio_path),
             ],
             capture_output=True,
@@ -171,11 +180,16 @@ def _split_audio_ffmpeg(
 
             proc = subprocess.run(
                 [
-                    ffmpeg_bin, "-y",
-                    "-ss", str(start),
-                    "-i", str(audio_path),
-                    "-t", str(end - start),
-                    "-c", "copy",
+                    ffmpeg_bin,
+                    "-y",
+                    "-ss",
+                    str(start),
+                    "-i",
+                    str(audio_path),
+                    "-t",
+                    str(end - start),
+                    "-c",
+                    "copy",
                     str(chunk_path),
                 ],
                 capture_output=True,
@@ -184,7 +198,9 @@ def _split_audio_ffmpeg(
             if proc.returncode != 0:
                 raise RuntimeError(f"ffmpeg chunk split failed: {proc.stderr.strip()}")
 
-            chunks.append(ChunkInfo(index=chunk_idx, path=chunk_path, start_seconds=start, end_seconds=end))
+            chunks.append(
+                ChunkInfo(index=chunk_idx, path=chunk_path, start_seconds=start, end_seconds=end)
+            )
             logging.debug("Chunk %d: %.1fs - %.1fs -> %s", chunk_idx, start, end, chunk_path)
 
             chunk_idx += 1
@@ -194,6 +210,7 @@ def _split_audio_ffmpeg(
     except Exception:
         if owned_dir:
             import shutil
+
             shutil.rmtree(output_dir, ignore_errors=True)
         raise
 

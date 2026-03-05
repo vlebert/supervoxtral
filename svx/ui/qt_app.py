@@ -1113,9 +1113,7 @@ class RecorderWindow(QWidget):
         """Called once the in-progress recording has been discarded for file processing."""
         if self._pending_file is None:
             return
-        self._set_status(
-            f"{self._pending_file.name} loaded \u2014 choose action"
-        )
+        self._set_status(f"{self._pending_file.name} loaded \u2014 choose action")
 
     def _start_file_processing(self, audio_path: Path, mode: str) -> None:
         """Create and start a ProcessFileWorker for the given file and mode."""

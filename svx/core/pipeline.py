@@ -14,7 +14,13 @@ import soundfile as sf
 
 import svx.core.config as config
 from svx.core.audio import convert_audio, record_wav, timestamp
-from svx.core.chunking import ChunkInfo, get_audio_duration, merge_segments, merge_texts, split_audio
+from svx.core.chunking import (
+    ChunkInfo,
+    get_audio_duration,
+    merge_segments,
+    merge_texts,
+    split_audio,
+)
 from svx.core.clipboard import copy_to_clipboard
 from svx.core.config import Config
 from svx.core.formatting import format_diarized_transcript
@@ -251,7 +257,9 @@ class RecordingPipeline:
 
         def _transcribe_chunk(chunk: ChunkInfo) -> tuple[int, TranscriptionResult]:
             prov = get_provider(provider_name, cfg=self.cfg)
-            result = self._transcribe_single(chunk.path, provider_name, model, language, diarize, prov=prov)
+            result = self._transcribe_single(
+                chunk.path, provider_name, model, language, diarize, prov=prov
+            )
             if keep_transcript:
                 self.cfg.transcripts_dir.mkdir(parents=True, exist_ok=True)
                 save_text_file(
