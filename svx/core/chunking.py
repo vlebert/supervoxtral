@@ -23,6 +23,7 @@ from svx.providers.base import TranscriptionSegment
 
 __all__ = [
     "ChunkInfo",
+    "get_audio_duration",
     "split_audio",
     "merge_segments",
     "merge_texts",
@@ -112,19 +113,22 @@ def _split_wav(
     return chunks
 
 
-def _get_duration_ffprobe(audio_path: Path) -> float:
-    """Return duration in seconds via ffprobe."""
-    proc = subprocess.run(
-        [
-            "ffprobe",
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            str(audio_path),
-        ],
-        capture_output=True,
-        text=True,
-    )
+def get_audio_duration(audio_path: Path) -> float:
+    """Return duration in seconds via ffprobe. Raises RuntimeError if ffprobe is unavailable or fails."""
+    try:
+        proc = subprocess.run(
+            [
+                "ffprobe",
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(audio_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        raise RuntimeError("ffprobe not found. Please install ffmpeg (e.g., brew install ffmpeg).")
     if proc.returncode != 0:
         raise RuntimeError(f"ffprobe failed: {proc.stderr.strip()}")
     return float(proc.stdout.strip())
@@ -143,12 +147,13 @@ def _split_audio_ffmpeg(
     if not ffmpeg_bin:
         raise RuntimeError("ffmpeg not found. Please install ffmpeg (e.g., brew install ffmpeg).")
 
-    total_duration = _get_duration_ffprobe(audio_path)
+    total_duration = get_audio_duration(audio_path)
     ext = audio_path.suffix  # preserve source format
 
     if total_duration <= chunk_duration:
         return [ChunkInfo(index=0, path=audio_path, start_seconds=0.0, end_seconds=total_duration)]
 
+    owned_dir = output_dir is None
     if output_dir is None:
         output_dir = Path(tempfile.mkdtemp(prefix="svx_chunks_"))
     else:
@@ -159,32 +164,38 @@ def _split_audio_ffmpeg(
     chunk_idx = 0
     start = 0.0
 
-    while start < total_duration:
-        end = min(start + chunk_duration, total_duration)
-        chunk_path = output_dir / f"chunk_{chunk_idx:03d}{ext}"
+    try:
+        while start < total_duration:
+            end = min(start + chunk_duration, total_duration)
+            chunk_path = output_dir / f"chunk_{chunk_idx:03d}{ext}"
 
-        proc = subprocess.run(
-            [
-                ffmpeg_bin, "-y",
-                "-ss", str(start),
-                "-i", str(audio_path),
-                "-t", str(end - start),
-                "-c", "copy",
-                str(chunk_path),
-            ],
-            capture_output=True,
-            text=True,
-        )
-        if proc.returncode != 0:
-            raise RuntimeError(f"ffmpeg chunk split failed: {proc.stderr.strip()}")
+            proc = subprocess.run(
+                [
+                    ffmpeg_bin, "-y",
+                    "-ss", str(start),
+                    "-i", str(audio_path),
+                    "-t", str(end - start),
+                    "-c", "copy",
+                    str(chunk_path),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if proc.returncode != 0:
+                raise RuntimeError(f"ffmpeg chunk split failed: {proc.stderr.strip()}")
 
-        chunks.append(ChunkInfo(index=chunk_idx, path=chunk_path, start_seconds=start, end_seconds=end))
-        logging.debug("Chunk %d: %.1fs - %.1fs -> %s", chunk_idx, start, end, chunk_path)
+            chunks.append(ChunkInfo(index=chunk_idx, path=chunk_path, start_seconds=start, end_seconds=end))
+            logging.debug("Chunk %d: %.1fs - %.1fs -> %s", chunk_idx, start, end, chunk_path)
 
-        chunk_idx += 1
-        start += step
-        if end >= total_duration:
-            break
+            chunk_idx += 1
+            start += step
+            if end >= total_duration:
+                break
+    except Exception:
+        if owned_dir:
+            import shutil
+            shutil.rmtree(output_dir, ignore_errors=True)
+        raise
 
     logging.info(
         "Split %s (%.1fs) into %d chunks of %ds with %ds overlap",

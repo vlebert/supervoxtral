@@ -1098,7 +1098,14 @@ class RecorderWindow(QWidget):
 
         # Redirect the canceled signal: instead of closing the window, show the
         # "file loaded" state so the user can pick a mode from the existing buttons.
-        self._worker.canceled.disconnect(self._close_soon)
+        try:
+            self._worker.canceled.disconnect(self._close_soon)
+        except RuntimeError:
+            pass
+        try:
+            self._worker.canceled.disconnect(self._on_recording_discarded_for_file)
+        except RuntimeError:
+            pass
         self._worker.canceled.connect(self._on_recording_discarded_for_file)
         self._worker.cancel_discard()
 
