@@ -585,7 +585,7 @@ def process(
     """
     Process an existing audio file through the transcription pipeline.
 
-    Feeds an existing audio file (WAV, MP3, M4A, FLAC, Opus, OGG) into the same
+    Feeds an existing audio or video file (WAV, MP3, M4A, FLAC, Opus, OGG, MP4, MOV, MKV, AVI, WebM) into the same
     2-step pipeline used by the record command:
 
     1. Transcription: audio -> text via dedicated transcription endpoint.

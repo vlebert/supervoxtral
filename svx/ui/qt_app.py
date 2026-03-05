@@ -1086,7 +1086,7 @@ class RecorderWindow(QWidget):
         # Disable immediately to prevent a second click while the dialog is open
         self._process_file_btn.setEnabled(False)
 
-        audio_filter = "Audio Files (*.wav *.mp3 *.m4a *.ogg *.flac *.opus);;All Files (*)"
+        audio_filter = "Audio/Video Files (*.wav *.mp3 *.m4a *.ogg *.flac *.opus *.mp4 *.mov *.mkv *.avi *.webm);;All Files (*)"
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Audio File", "", audio_filter)
         if not file_path:
             self._process_file_btn.setEnabled(True)
