@@ -57,13 +57,14 @@ def detect_ffmpeg() -> str | None:
         return None
 
 
-def convert_audio(input_wav: Path, fmt: str) -> Path:
+def convert_audio(input_wav: Path, fmt: str, output_dir: Path | None = None) -> Path:
     """
-    Convert a WAV file to the target compressed audio format using ffmpeg.
+    Convert an audio file to the target compressed format using ffmpeg.
 
     Args:
-        input_wav: Path to the source WAV file.
+        input_wav: Path to the source audio file.
         fmt: Target format, one of {'mp3', 'opus'}.
+        output_dir: Directory for the output file. Defaults to the same directory as input_wav.
 
     Returns:
         Path to the converted file.
@@ -77,13 +78,19 @@ def convert_audio(input_wav: Path, fmt: str) -> Path:
     if not ffmpeg_bin:
         raise RuntimeError("ffmpeg not found. Please install ffmpeg (e.g., brew install ffmpeg).")
 
-    output_path = input_wav.with_suffix(f".{fmt}")
+    stem = input_wav.stem
+    if output_dir is not None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / f"{stem}.{fmt}"
+    else:
+        output_path = input_wav.with_suffix(f".{fmt}")
     if fmt == "mp3":
         cmd = [
             ffmpeg_bin,
             "-y",
             "-i",
             str(input_wav),
+            "-vn",
             "-codec:a",
             "libmp3lame",
             "-q:a",
@@ -96,10 +103,13 @@ def convert_audio(input_wav: Path, fmt: str) -> Path:
             "-y",
             "-i",
             str(input_wav),
+            "-vn",
             "-c:a",
             "libopus",
             "-b:a",
             "24k",
+            "-application",
+            "voip",
             str(output_path),
         ]
 

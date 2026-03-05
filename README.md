@@ -8,13 +8,14 @@
 
 SuperVoxtral is a lightweight Python CLI/GUI utility for recording audio and processing it via a 2-step pipeline using Mistral's APIs.
 
-The pipeline works in two stages: 
-- (1) **Transcription** — audio is converted to text using Voxtral's dedicated transcription endpoint (`voxtral-mini-latest`), which delivers fast inference, high accuracy across languages, and minimal API costs; 
-- (2) **Transformation** — the raw transcript is refined by a text-based LLM (e.g., `mistral-small-latest`) using a configurable prompt for tasks like error correction, summarization, or reformatting. 
+The pipeline works in two stages:
+- (1) **Transcription** — audio is converted to text using Voxtral's dedicated transcription endpoint (`voxtral-mini-latest`), which delivers fast inference, high accuracy across languages, and minimal API costs;
+- (2) **Transformation** — the raw transcript is refined by a text-based LLM (e.g., `mistral-small-latest`) using a configurable prompt for tasks like error correction, summarization, or reformatting.
 
 In pure transcription mode (`--transcribe`), only step 1 is performed.
 
 **Key features:**
+- **Process existing files** — feed any audio or video file (WAV, MP3, M4A, FLAC, Opus, OGG, MP4, MOV, MKV, AVI, WebM) through the pipeline with `svx process <file>`. No recording needed — ideal for workflows using a screen recorder like CleanShot X to capture mic + system audio simultaneously, then processing with SuperVoxtral. Simpler than BlackHole loopback setups.
 - **Speaker diarization** — identifies who said what (enabled by default)
 - **Auto-chunking** — long recordings (> 5 min) are automatically split, transcribed in parallel, and merged without duplicates
 - **Dual audio capture** — records microphone + system audio (e.g., meeting participants on a call) when a loopback device is configured
@@ -330,6 +331,33 @@ svx record [OPTIONS]
 - Launch GUI: `svx record --gui`
   - Interactive mode: recording starts immediately; click 'Transcribe' (pure transcription, no prompt) or 'Prompt' (with resolved prompt); --transcribe ignored with warning. GUI respects config.toml and CLI flags (e.g., `--gui --save-all`).
 
+### Process Command
+
+Feed an existing audio or video file through the same pipeline — no recording needed.
+
+```
+svx process AUDIO_FILE [OPTIONS]
+```
+
+Supported formats: WAV, MP3, M4A, FLAC, Opus, OGG, MP4, MOV, MKV, AVI, WebM.
+
+The original file is **never deleted**, regardless of `keep_*` config flags.
+
+**Options** (same as `record`, minus `--gui` and `--outfile-prefix`):
+- `--transcribe`: Pure transcription mode (no prompt).
+- `--save-all`: Save converted audio and transcripts to user data directories.
+- `--user-prompt TEXT` / `--user-prompt-file PATH`: Inline or file-based prompt.
+- `--log-level LEVEL`: Logging level.
+
+**Examples**:
+- Transcribe a file: `svx process recording.m4a --transcribe`
+- Summarize a meeting recording: `svx process meeting.mp4 --prompt "Summarize in bullet points"`
+- Save outputs: `svx process interview.wav --save-all`
+
+**Typical workflow with a screen recorder (e.g., CleanShot X):**
+
+> Use your screen recorder to capture audio — it records mic + system audio together in a single file. Then run `svx process` on that file. This is a simpler alternative to the BlackHole loopback setup for meeting transcription.
+
 **Prompt Resolution Priority** (for non-transcribe mode):
 By default in CLI, uses the 'default' prompt from config.toml [prompt.default]. For overrides:
 1. CLI `--user-prompt` or `--user-prompt-file`
@@ -340,6 +368,7 @@ By default in CLI, uses the 'default' prompt from config.toml [prompt.default]. 
 
 ## Changelog
 
+- 0.8.0: New `svx process` command — feed any existing audio/video file (WAV, MP3, M4A, FLAC, Opus, OGG, MP4, MOV, MKV, AVI, WebM) through the full transcription pipeline without recording. The original file is never deleted. Parallel chunk transcription via `ThreadPoolExecutor` for faster processing of long files. Supports non-WAV inputs via ffmpeg stream copy before chunking. Improved Opus encoding for VoIP quality.
 - 0.7.0: CLI live recording display — `svx record` now shows an animated panel during recording with real-time audio level meters (MIC always, LOOP when a loopback device is configured), a live elapsed time counter (MM:SS), and a config summary (model, llm, audio format, language). Press Enter to stop as before.
 - 0.6.0: Split `keep_audio_files` into two independent flags — `keep_raw_audio` (saves WAV) and `keep_compressed_audio` (saves opus/mp3). Fixes bug where the compressed file was always deleted even when `keep_audio_files = true`. GUI adds two persistent checkboxes (stored via QSettings) to toggle each flag without editing config.toml. `--save-all` and auto-save for long recordings activate both flags.
 - 0.5.1: GUI refinements — level meters now show the active audio interface name; window dragging fixed on all non-interactive areas; info/checkbox/status rows left-aligned with bar start; cleaner status section.
