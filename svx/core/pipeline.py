@@ -13,7 +13,7 @@ import soundfile as sf
 
 import svx.core.config as config
 from svx.core.audio import convert_audio, record_wav, timestamp
-from svx.core.chunking import merge_segments, merge_texts, split_wav
+from svx.core.chunking import _get_duration_ffprobe, merge_segments, merge_texts, split_audio
 from svx.core.clipboard import copy_to_clipboard
 from svx.core.config import Config
 from svx.core.formatting import format_diarized_transcript
@@ -245,7 +245,7 @@ class RecordingPipeline:
         keep_transcript = self.save_all or self.cfg.defaults.keep_transcript_files
 
         self._status(f"Splitting audio into {chunk_duration}s chunks...")
-        chunks = split_wav(audio_path, chunk_duration=chunk_duration, overlap=chunk_overlap)
+        chunks = split_audio(audio_path, chunk_duration=chunk_duration, overlap=chunk_overlap)
         self._chunk_dir = chunks[0].path.parent if chunks and chunks[0].path != audio_path else None
 
         prov = get_provider(provider_name, cfg=self.cfg)
@@ -443,6 +443,10 @@ class RecordingPipeline:
         try:
             info = sf.info(str(audio_path))
             return info.frames / info.samplerate
+        except Exception:
+            pass
+        try:
+            return _get_duration_ffprobe(audio_path)
         except Exception:
             logging.warning(
                 "Could not read audio duration from %s, using fallback %.1fs",
