@@ -28,7 +28,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gui = ["PySide6-Essentials"]
+gui = []  # tkinter is bundled with Python — no extra dependencies needed
 dev = ["ruff", "basedpyright"]
 
 [project.scripts]

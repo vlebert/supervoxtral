@@ -434,7 +434,7 @@ def record(
 
     # If GUI requested, launch GUI with the resolved parameters and exit.
     if gui:
-        from svx.ui.qt_app import run_gui
+        from svx.ui.tk_app import run_gui
 
         # Pass config object to the GUI call
         run_gui(
