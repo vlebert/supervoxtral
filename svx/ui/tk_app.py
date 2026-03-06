@@ -5,7 +5,7 @@ Pure stdlib — no PySide6/Qt required.
 
 Behavior:
 - Starts recording immediately on launch.
-- Frameless always-on-top window, draggable by clicking anywhere.
+- Always-on-top window with native title bar.
 - Transcribe / Prompt buttons stop recording and process.
 - Cancel stops recording and discards.
 - Esc triggers Cancel.
@@ -36,24 +36,18 @@ from svx.core.prompt import resolve_user_prompt
 
 __all__ = ["RecorderWindow", "run_gui"]
 
-# ── Palette ──────────────────────────────────────────────────────────────────
-BG = "#0f1113"
-FG = "#e6eef3"
-FG_DIM = "#9fb8e6"
-FG_DIMMER = "#3d5a72"
-BTN_BG = "#1e40af"
-BTN_FG = "#ffffff"
-BTN_CANCEL_BG = "#7f1d1d"
-ENTRY_BG = "#161b22"
-BORDER = "#203040"
-
-SEG_OFF = "#0d1a22"
-SEG_LO = "#0e7490"
-SEG_MID = "#a1580a"
-SEG_HI = "#a01e1e"
-SEG_PK_LO = "#1ea0c4"
-SEG_PK_MID = "#d26e0e"
-SEG_PK_HI = "#d22d2d"
+# ── Level meter colors only (Mistral gradient: #E10300 → #FA500E → #FFAF00) ──
+# Canvas uses system background (blends into the window).
+# Inactive segments are a subtle warm grey; active segments pop with Mistral colors.
+_SEG_OFF = "#d4cfc8"       # inactive segment — barely-there warm grey
+_SEG_LABEL = "#a06000"     # meter label — dark amber, readable on light bg
+# Active segments are slightly muted; peak-hold is full-brightness Mistral to stand out.
+_SEG_LO = "#cc8800"        # active — muted amber  (safe)
+_SEG_MID = "#cc4008"       # active — muted orange (warning)
+_SEG_HI = "#990000"        # active — muted red    (clip)
+_SEG_PK_LO = "#FFAF00"     # peak-hold — full bright amber  (safe)
+_SEG_PK_MID = "#FA500E"    # peak-hold — full bright orange (warning)
+_SEG_PK_HI = "#E10300"     # peak-hold — full bright red    (clip)
 
 # ── Persistent settings (replaces QSettings) ─────────────────────────────────
 _SETTINGS_FILE = config.USER_DATA_DIR / "ui_settings.json"
@@ -77,16 +71,18 @@ def _save_settings(data: dict[str, Any]) -> None:
 # ── Level meter ───────────────────────────────────────────────────────────────
 class LevelMeterWidget:
     """
-    Compact horizontal segmented level meter rendered on a tk.Canvas.
+    Pixel-art level meter rendered on a tk.Canvas.
 
-    Mirrors the look of the Qt version: 20 LED-style segments in
-    cyan → amber → red zones with peak-hold marker.
+    Each segment is drawn as a 3×2 grid of chunky square pixels (dot-matrix
+    style). The canvas uses the system background so it blends into the window;
+    only the colored active pixels carry the Mistral palette.
     """
 
     _LABEL_W = 130
     _NUM_SEGS = 20
     _SEG_GAP = 2
     _TRACK_H = 8
+    _CANVAS_H = 46
     _WARN_SEG = int(_NUM_SEGS * 0.68)
     _CLIP_SEG = int(_NUM_SEGS * 0.86)
 
@@ -95,8 +91,9 @@ class LevelMeterWidget:
         self._device_name = device_name
         self._display_level: float = 0.0
         self._peak: float = 0.0
-        self.canvas = tk.Canvas(parent, height=36, bg=BG, highlightthickness=0, bd=0)
-        self.canvas.pack(fill="x", padx=0, pady=1)
+        # No explicit bg= so the canvas uses the system window background
+        self.canvas = tk.Canvas(parent, height=self._CANVAS_H, highlightthickness=0, bd=0)
+        self.canvas.pack(fill="x", padx=8, pady=2)
         self._decay_job: str | None = None
         self._start_decay()
 
@@ -126,49 +123,46 @@ class LevelMeterWidget:
         is_peak = show_peak and i == peak_seg and not is_active
         if is_active:
             if i >= self._CLIP_SEG:
-                return SEG_HI
+                return _SEG_HI
             if i >= self._WARN_SEG:
-                return SEG_MID
-            return SEG_LO
+                return _SEG_MID
+            return _SEG_LO
         if is_peak:
             if i >= self._CLIP_SEG:
-                return SEG_PK_HI
+                return _SEG_PK_HI
             if i >= self._WARN_SEG:
-                return SEG_PK_MID
-            return SEG_PK_LO
-        return SEG_OFF
+                return _SEG_PK_MID
+            return _SEG_PK_LO
+        return _SEG_OFF
 
     def _redraw(self) -> None:
         c = self.canvas
         c.delete("all")
-        w = c.winfo_width() or 380
-        h = c.winfo_height() or 36
+        h = self._CANVAS_H
         lw = self._LABEL_W
         mid = h // 2
 
-        # Label text
+        # Label
         if self._device_name:
             c.create_text(
                 lw - 4, mid // 2 + 1,
-                text=self._label, anchor="e", fill="#648cac", font=("TkFixedFont", 8),
+                text=self._label, anchor="e", fill=_SEG_LABEL, font=("TkFixedFont", 11, "bold"),
             )
             dn = self._device_name
             dev = (dn[:22] + "\u2026") if len(dn) > 23 else dn
             c.create_text(
                 lw - 4, mid + mid // 2,
-                text=dev, anchor="e", fill="#375269", font=("TkFixedFont", 7),
+                text=dev, anchor="e", fill=_SEG_LABEL, font=("TkFixedFont", 9),
             )
         else:
             c.create_text(
                 lw - 4, mid,
-                text=self._label, anchor="e", fill="#648cac", font=("TkFixedFont", 8),
+                text=self._label, anchor="e", fill=_SEG_LABEL, font=("TkFixedFont", 11, "bold"),
             )
 
-        # Bar geometry
+        # Segmented bar
         bar_x = lw + 4
-        bar_w = max(1, w - bar_x - 12)
-        if bar_w <= 0:
-            return
+        bar_w = max(1, (c.winfo_width() or 420) - bar_x - 12)
         bar_y = (h - self._TRACK_H) // 2
         seg_w = max(1, (bar_w - (self._NUM_SEGS - 1) * self._SEG_GAP) // self._NUM_SEGS)
 
@@ -349,6 +343,7 @@ class ResultDialog:
     """
     Modal dialog shown in review mode.
     Displays raw transcript and optionally the transformed text side-by-side.
+    Uses system-default styling.
     """
 
     def __init__(
@@ -360,88 +355,62 @@ class ResultDialog:
     ) -> None:
         self._win = tk.Toplevel(parent)
         self._win.title("SuperVoxtral \u2014 Review")
-        self._win.configure(bg=BG)
         self._win.attributes("-topmost", True)  # type: ignore[arg-type]
         self._win.grab_set()
 
         has_transformation = text.strip() != raw_transcript.strip()
 
-        tk.Label(
-            self._win, text="Review", bg=BG, fg=FG, font=("TkFixedFont", 12)
-        ).pack(pady=(10, 6))
+        tk.Label(self._win, text="Review", font=("TkDefaultFont", 13, "bold")).pack(pady=(10, 6))
 
         if has_transformation:
             paned = ttk.PanedWindow(self._win, orient="horizontal")
             paned.pack(fill="both", expand=True, padx=8, pady=4)
 
-            left = tk.Frame(paned, bg=BG)
-            tk.Label(
-                left, text="Raw Transcript", bg=BG, fg=FG_DIM, font=("TkFixedFont", 9)
-            ).pack(anchor="w")
-            raw_txt = tk.Text(
-                left, bg=ENTRY_BG, fg=FG, insertbackground=FG,
-                font=("TkFixedFont", 10), relief="flat", wrap="word",
-            )
+            left = tk.Frame(paned)
+            tk.Label(left, text="Raw Transcript").pack(anchor="w")
+            raw_txt = tk.Text(left, font=("TkFixedFont", 10), relief="sunken", wrap="word")
             raw_txt.insert("1.0", raw_transcript)
             raw_txt.config(state="disabled")
             raw_txt.pack(fill="both", expand=True)
-            tk.Button(
-                left, text="Copy Raw", bg=BTN_BG, fg=BTN_FG, relief="flat",
-                command=lambda: self._copy(raw_transcript),
+            ttk.Button(
+                left, text="Copy Raw", command=lambda: self._copy(raw_transcript),
             ).pack(pady=4)
             paned.add(left)
 
-            right = tk.Frame(paned, bg=BG)
-            tk.Label(
-                right, text="Transformed", bg=BG, fg=FG_DIM, font=("TkFixedFont", 9)
-            ).pack(anchor="w")
-            xfm_txt = tk.Text(
-                right, bg=ENTRY_BG, fg=FG, insertbackground=FG,
-                font=("TkFixedFont", 10), relief="flat", wrap="word",
-            )
+            right = tk.Frame(paned)
+            tk.Label(right, text="Transformed").pack(anchor="w")
+            xfm_txt = tk.Text(right, font=("TkFixedFont", 10), relief="sunken", wrap="word")
             xfm_txt.insert("1.0", text)
             xfm_txt.config(state="disabled")
             xfm_txt.pack(fill="both", expand=True)
-            tk.Button(
-                right, text="Copy Transformed", bg=BTN_BG, fg=BTN_FG, relief="flat",
-                command=lambda: self._copy(text),
+            ttk.Button(
+                right, text="Copy Transformed", command=lambda: self._copy(text),
             ).pack(pady=4)
             paned.add(right)
 
             self._win.geometry("800x520")
         else:
-            tk.Label(self._win, text="Transcript", bg=BG, fg=FG_DIM, font=("TkFixedFont", 9)).pack(
-                anchor="w", padx=8
-            )
-            txt = tk.Text(
-                self._win, bg=ENTRY_BG, fg=FG, insertbackground=FG,
-                font=("TkFixedFont", 10), relief="flat", wrap="word",
-            )
+            tk.Label(self._win, text="Transcript").pack(anchor="w", padx=8)
+            txt = tk.Text(self._win, font=("TkFixedFont", 10), relief="sunken", wrap="word")
             txt.insert("1.0", text)
             txt.config(state="disabled")
             txt.pack(fill="both", expand=True, padx=8, pady=4)
-            tk.Button(
-                self._win, text="Copy Transcript", bg=BTN_BG, fg=BTN_FG, relief="flat",
-                command=lambda: self._copy(text),
+            ttk.Button(
+                self._win, text="Copy Transcript", command=lambda: self._copy(text),
             ).pack(pady=4)
             self._win.geometry("500x400")
 
-        # Transcript file path (plain label)
+        # Transcript file path
         transcript_path = paths.get("transcript") or paths.get("txt")
         if isinstance(transcript_path, Path):
             tk.Label(
-                self._win, text=str(transcript_path), bg=BG, fg="#5ea8ff",
-                font=("TkFixedFont", 9),
+                self._win, text=str(transcript_path), font=("TkFixedFont", 9),
             ).pack(pady=2)
 
         # Bottom bar
-        bottom = tk.Frame(self._win, bg=BG)
+        bottom = tk.Frame(self._win)
         bottom.pack(fill="x", padx=8, pady=(4, 10))
-        tk.Button(
-            bottom, text="Close", bg=BTN_BG, fg=BTN_FG, relief="flat",
-            command=self._win.destroy,
-        ).pack(side="right")
-
+        ttk.Button(bottom, text="Close", command=self._win.destroy).pack(side="right")
 
     def _copy(self, text: str) -> None:
         self._win.clipboard_clear()
@@ -474,10 +443,12 @@ def _open_directory(path: str) -> None:
 # ── Main window ───────────────────────────────────────────────────────────────
 class RecorderWindow:
     """
-    Frameless always-on-top tkinter window.
+    Always-on-top tkinter window with native title bar.
 
     Starts recording immediately on creation. The user clicks a mode button
     (Transcribe / prompt key) to stop and process, or Cancel to discard.
+    The window uses system-default styling; only the level meters use the
+    Mistral color palette.
     """
 
     def __init__(
@@ -517,7 +488,6 @@ class RecorderWindow:
         self._record_start_time: float | None = None
         self._pending_file: Path | None = None
         self._elapsed_job: str | None = None
-        # When True, next "canceled" event means "file loaded" not "close"
         self._discard_for_file = False
 
         # Queue for worker→UI communication
@@ -543,14 +513,12 @@ class RecorderWindow:
         )
         self._worker_thread = threading.Thread(target=self._worker.run, daemon=True)
 
-        # Window configuration
+        # Window configuration — system default, always on top
         root.title("SuperVoxtral")
-        root.configure(bg=BG)
         root.attributes("-topmost", True)  # type: ignore[arg-type]
-        root.minsize(380, 0)
+        root.minsize(420, 0)
 
         # Build UI widgets
-        self._checkbuttons: list[tk.Checkbutton] = []
         self._build_ui()
 
         # Key bindings and window close handler
@@ -574,22 +542,13 @@ class RecorderWindow:
 
     def _build_ui(self) -> None:
         root = self._root
-        bar_offset = self._mic_meter_offset()  # horizontal indent matching bar start
 
-        # Title row
-        title_row = tk.Frame(root, bg=BG)
-        title_row.pack(fill="x", padx=10, pady=(10, 4))
+        # Title
         tk.Label(
-            title_row, text="\u2550\u2550", bg=BG, fg="#1e3a52", font=("TkFixedFont", 11)
-        ).pack(side="left")
-        tk.Label(
-            title_row, text=" SuperVoxtral ", bg=BG, fg="#5a8fae", font=("TkFixedFont", 11, "bold")
-        ).pack(side="left")
-        tk.Label(
-            title_row, text="\u2550\u2550", bg=BG, fg="#1e3a52", font=("TkFixedFont", 11)
-        ).pack(side="left")
+            root, text="SuperVoxtral", font=("TkDefaultFont", 13, "bold"),
+        ).pack(pady=(10, 2))
 
-        # Level meters
+        # Level meters (Mistral-colored pixel-art LED canvas)
         mic_name = _get_default_input_name()
         self._mic_meter = LevelMeterWidget(root, "MIC", device_name=mic_name)
         self._loop_meter: LevelMeterWidget | None = None
@@ -606,104 +565,87 @@ class RecorderWindow:
         ]
         if self.cfg.defaults.language:
             info_parts.append(f"lang: {self.cfg.defaults.language}")
-        info_row = tk.Frame(root, bg=BG)
-        info_row.pack(fill="x", padx=(bar_offset, 10), pady=(0, 2))
         tk.Label(
-            info_row, text="  \u00b7  ".join(info_parts),
-            bg=BG, fg=FG_DIMMER, font=("TkFixedFont", 9),
-        ).pack(side="left")
+            root, text="  \u00b7  ".join(info_parts), font=("TkFixedFont", 9),
+        ).pack(anchor="w", padx=10, pady=(0, 2))
 
         # Checkboxes row 1: audio retention
         self._keep_raw_var = tk.BooleanVar(value=self.cfg.defaults.keep_raw_audio)
         self._keep_compressed_var = tk.BooleanVar(value=self.cfg.defaults.keep_compressed_audio)
         self._keep_transcripts_var = tk.BooleanVar(value=self.cfg.defaults.keep_transcript_files)
 
-        chk1 = tk.Frame(root, bg=BG)
-        chk1.pack(fill="x", padx=(bar_offset, 10), pady=1)
+        chk1 = tk.Frame(root)
+        chk1.pack(anchor="w", padx=10, pady=1)
+        self._checkbuttons: list[ttk.Checkbutton] = []
         for text, var, cmd in [
             ("Keep raw WAV", self._keep_raw_var, self._on_keep_raw_changed),
             ("Keep compressed", self._keep_compressed_var, self._on_keep_compressed_changed),
             ("Keep transcripts", self._keep_transcripts_var, self._on_keep_transcripts_changed),
         ]:
-            cb = tk.Checkbutton(
-                chk1, text=text, variable=var, bg=BG, fg=FG_DIM,
-                selectcolor=BG, activebackground=BG, activeforeground=FG_DIM,
-                command=cmd,
-            )
+            cb = ttk.Checkbutton(chk1, text=text, variable=var, command=cmd)
             cb.pack(side="left", padx=(0, 8))
             self._checkbuttons.append(cb)
 
-        # Checkboxes row 2: review + data dir
+        # Checkboxes row 2: review + data dir link
         self._review_var = tk.BooleanVar(value=self._review_mode)
-        chk2 = tk.Frame(root, bg=BG)
-        chk2.pack(fill="x", padx=(bar_offset, 10), pady=(1, 6))
-        review_cb = tk.Checkbutton(
-            chk2, text="Review result", variable=self._review_var,
-            bg=BG, fg=FG_DIM, selectcolor=BG, activebackground=BG, activeforeground=FG_DIM,
-            command=self._on_review_changed,
+        chk2 = tk.Frame(root)
+        chk2.pack(fill="x", padx=10, pady=(1, 4))
+        review_cb = ttk.Checkbutton(
+            chk2, text="Review result", variable=self._review_var, command=self._on_review_changed,
         )
         review_cb.pack(side="left")
         self._checkbuttons.append(review_cb)
-        tk.Button(
-            chk2, text="SuperVoxtral Directory",
-            bg=BG, fg=FG_DIM, relief="flat", font=("TkFixedFont", 9),
-            command=self._on_open_data_dir,
+        ttk.Button(
+            chk2, text="Open data folder", command=self._on_open_data_dir,
         ).pack(side="right")
 
         # Separator
-        tk.Frame(root, bg=BORDER, height=1).pack(fill="x", padx=10, pady=(2, 4))
+        ttk.Separator(root, orient="horizontal").pack(fill="x", padx=8, pady=(2, 4))
 
         # Status label
-        status_row = tk.Frame(root, bg=BG)
-        status_row.pack(fill="x", padx=(bar_offset, 10), pady=(2, 8))
         self._status_label = tk.Label(
-            status_row, text="", bg=BG, fg=FG, font=("TkFixedFont", 10), anchor="w",
+            root, text="", font=("TkFixedFont", 12), anchor="w",
         )
-        self._status_label.pack(side="left", fill="x", expand=True)
+        self._status_label.pack(fill="x", padx=10, pady=(2, 6))
 
         # Action buttons row (Transcribe, prompt keys, Cancel)
-        btn_row = tk.Frame(root, bg=BG)
+        ttk.Style().configure("Cancel.TButton", font=("TkDefaultFont", 0, "bold"))
+
+        btn_row = tk.Frame(root)
         btn_row.pack(fill="x", padx=10, pady=(0, 4))
 
-        self._transcribe_btn = tk.Button(
-            btn_row, text="Transcribe", bg=BTN_BG, fg=BTN_FG, relief="flat",
-            font=("TkFixedFont", 10), padx=8,
+        self._transcribe_btn = ttk.Button(
+            btn_row, text="Transcribe",
             command=lambda: self._on_mode_selected("transcribe"),
         )
         self._transcribe_btn.pack(side="left", padx=(0, 4))
 
-        self._prompt_buttons: dict[str, tk.Button] = {}
+        self._prompt_buttons: dict[str, ttk.Button] = {}
         for key in self.prompt_keys:
-            btn = tk.Button(
-                btn_row, text=key.capitalize(), bg=BTN_BG, fg=BTN_FG, relief="flat",
-                font=("TkFixedFont", 10), padx=8,
+            btn = ttk.Button(
+                btn_row, text=key.capitalize(),
                 command=lambda k=key: self._on_mode_selected(k),  # type: ignore[misc]
             )
             btn.pack(side="left", padx=(0, 4))
             self._prompt_buttons[key] = btn
 
-        self._cancel_btn = tk.Button(
-            btn_row, text="Cancel", bg=BTN_CANCEL_BG, fg=BTN_FG, relief="flat",
-            font=("TkFixedFont", 10), padx=8,
+        self._cancel_btn = ttk.Button(
+            btn_row, text="Cancel (Esc)", style="Cancel.TButton",
             command=self._on_cancel_clicked,
         )
         self._cancel_btn.pack(side="right")
 
-        # "Process file..." row
-        file_row = tk.Frame(root, bg=BG)
+        # "Process file..." link-style button
+        file_row = tk.Frame(root)
         file_row.pack(fill="x", padx=10, pady=(0, 10))
-        self._process_file_btn = tk.Button(
-            file_row, text="Process file...", bg=BG, fg=FG_DIM,
-            relief="flat", font=("TkFixedFont", 9),
-            command=self._on_process_file,
+        self._process_file_btn = ttk.Button(
+            file_row, text="Process file...", command=self._on_process_file,
         )
         self._process_file_btn.pack(side="left")
 
-        self._action_buttons = [self._transcribe_btn] + list(self._prompt_buttons.values())
-
-    def _mic_meter_offset(self) -> int:
-        """Horizontal padding so rows align with the bar start of the level meter."""
-        return LevelMeterWidget._LABEL_W + 4 + 10  # label + gap + window padding
+        self._action_buttons: list[ttk.Button] = (
+            [self._transcribe_btn] + list(self._prompt_buttons.values())
+        )
 
     # ── Queue polling (replaces Qt signals) ───────────────────────────────────
 
@@ -844,7 +786,6 @@ class RecorderWindow:
         self._pending_file = Path(file_path)
         self._cancel_elapsed()
         self._level_core.stop()
-        # Signal that the next "canceled" event means "file loaded", not "close"
         self._discard_for_file = True
         self._worker.cancel_discard()
 
