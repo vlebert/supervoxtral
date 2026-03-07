@@ -543,11 +543,6 @@ class RecorderWindow:
     def _build_ui(self) -> None:
         root = self._root
 
-        # Title
-        tk.Label(
-            root, text="SuperVoxtral", font=("TkDefaultFont", 13, "bold"),
-        ).pack(pady=(10, 2))
-
         # Level meters (Mistral-colored pixel-art LED canvas)
         mic_name = _get_default_input_name()
         self._mic_meter = LevelMeterWidget(root, "MIC", device_name=mic_name)
