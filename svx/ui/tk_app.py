@@ -596,21 +596,17 @@ class RecorderWindow:
         ).pack(side="right")
 
         # Status label
-        status_frame = tk.Frame(root, relief="groove", bd=1)
-        status_frame.pack(fill="x", padx=10, pady=(2, 6))
         self._status_label = tk.Label(
-            status_frame, text="", font=("TkFixedFont", 11), anchor="w",
+            root, text="", font=("TkFixedFont", 11, "italic"), fg="#FFAF00", anchor="w",
         )
-        self._status_label.pack(fill="x", padx=6, pady=3)
+        self._status_label.pack(fill="x", padx=10, pady=(2, 6))
 
-        # Action buttons row (Transcribe, prompt keys, Cancel)
-        ttk.Style().configure("Cancel.TButton", font=("TkDefaultFont", 0, "bold"))
-
-        btn_row = tk.Frame(root)
-        btn_row.pack(fill="x", padx=10, pady=(0, 4))
+        # Actions group (Transcribe + prompt keys)
+        actions_frame = ttk.LabelFrame(root, padding=(6, 4))
+        actions_frame.pack(fill="x", padx=10, pady=(0, 6))
 
         self._transcribe_btn = ttk.Button(
-            btn_row, text="Transcribe",
+            actions_frame, text="Transcribe",
             command=lambda: self._on_mode_selected("transcribe"),
         )
         self._transcribe_btn.pack(side="left", padx=(0, 4))
@@ -618,25 +614,26 @@ class RecorderWindow:
         self._prompt_buttons: dict[str, ttk.Button] = {}
         for key in self.prompt_keys:
             btn = ttk.Button(
-                btn_row, text=key.capitalize(),
+                actions_frame, text=key.capitalize(),
                 command=lambda k=key: self._on_mode_selected(k),  # type: ignore[misc]
             )
             btn.pack(side="left", padx=(0, 4))
             self._prompt_buttons[key] = btn
 
+        # Bottom row: Process file + Cancel
+        bottom_row = tk.Frame(root)
+        bottom_row.pack(fill="x", padx=10, pady=(0, 4))
+
+        self._process_file_btn = ttk.Button(
+            bottom_row, text="Process file...", command=self._on_process_file,
+        )
+        self._process_file_btn.pack(side="left")
+
         self._cancel_btn = ttk.Button(
-            btn_row, text="Cancel (Esc)", style="Cancel.TButton",
+            bottom_row, text="Cancel (Esc)",
             command=self._on_cancel_clicked,
         )
         self._cancel_btn.pack(side="right")
-
-        # "Process file..." link-style button
-        file_row = tk.Frame(root)
-        file_row.pack(fill="x", padx=10, pady=(0, 10))
-        self._process_file_btn = ttk.Button(
-            file_row, text="Process file...", command=self._on_process_file,
-        )
-        self._process_file_btn.pack(side="left")
 
         self._action_buttons: list[ttk.Button] = (
             [self._transcribe_btn] + list(self._prompt_buttons.values())
@@ -703,7 +700,7 @@ class RecorderWindow:
             self._elapsed_job = None
 
     def _set_status(self, msg: str) -> None:
-        self._status_label.config(text=f"Status: {msg}")
+        self._status_label.config(text=msg)
 
     # ── Event handlers ────────────────────────────────────────────────────────
 
