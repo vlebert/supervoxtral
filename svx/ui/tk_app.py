@@ -78,13 +78,10 @@ class LevelMeterWidget:
     only the colored active pixels carry the Mistral palette.
     """
 
-    _LABEL_W = 130
-    _NUM_SEGS = 20
-    _SEG_GAP = 2
-    _TRACK_H = 8
-    _CANVAS_H = 46
-    _WARN_SEG = int(_NUM_SEGS * 0.68)
-    _CLIP_SEG = int(_NUM_SEGS * 0.86)
+    _LABEL_W = 120
+    _SEG_SIZE = 5    # square pixel size
+    _SEG_GAP = 2     # gap between squares
+    _CANVAS_H = 38
 
     def __init__(self, parent: tk.Misc, label: str, device_name: str = "") -> None:
         self._label = label
@@ -118,19 +115,21 @@ class LevelMeterWidget:
             self.canvas.after_cancel(self._decay_job)
             self._decay_job = None
 
-    def _seg_color(self, i: int, active: int, peak_seg: int, show_peak: bool) -> str:
+    def _seg_color(self, i: int, active: int, peak_seg: int, show_peak: bool, num_segs: int) -> str:
+        warn_seg = int(num_segs * 0.68)
+        clip_seg = int(num_segs * 0.86)
         is_active = i < active
         is_peak = show_peak and i == peak_seg and not is_active
         if is_active:
-            if i >= self._CLIP_SEG:
+            if i >= clip_seg:
                 return _SEG_HI
-            if i >= self._WARN_SEG:
+            if i >= warn_seg:
                 return _SEG_MID
             return _SEG_LO
         if is_peak:
-            if i >= self._CLIP_SEG:
+            if i >= clip_seg:
                 return _SEG_PK_HI
-            if i >= self._WARN_SEG:
+            if i >= warn_seg:
                 return _SEG_PK_MID
             return _SEG_PK_LO
         return _SEG_OFF
@@ -146,34 +145,35 @@ class LevelMeterWidget:
         if self._device_name:
             c.create_text(
                 lw - 4, mid // 2 + 1,
-                text=self._label, anchor="e", fill=_SEG_LABEL, font=("TkFixedFont", 11, "bold"),
+                text=self._label, anchor="e", font=("TkDefaultFont", 11, "bold"),
             )
             dn = self._device_name
             dev = (dn[:22] + "\u2026") if len(dn) > 23 else dn
             c.create_text(
                 lw - 4, mid + mid // 2,
-                text=dev, anchor="e", fill=_SEG_LABEL, font=("TkFixedFont", 9),
+                text=dev, anchor="e", font=("TkDefaultFont", 9),
             )
         else:
             c.create_text(
                 lw - 4, mid,
-                text=self._label, anchor="e", fill=_SEG_LABEL, font=("TkFixedFont", 11, "bold"),
+                text=self._label, anchor="e", font=("TkDefaultFont", 11, "bold"),
             )
 
-        # Segmented bar
+        # Segmented bar — square pixels
         bar_x = lw + 4
-        bar_w = max(1, (c.winfo_width() or 420) - bar_x - 12)
-        bar_y = (h - self._TRACK_H) // 2
-        seg_w = max(1, (bar_w - (self._NUM_SEGS - 1) * self._SEG_GAP) // self._NUM_SEGS)
+        bar_w = max(1, (c.winfo_width() or 440) - bar_x - 12)
+        bar_y = (h - self._SEG_SIZE) // 2
+        step = self._SEG_SIZE + self._SEG_GAP
+        num_segs = max(1, (bar_w + self._SEG_GAP) // step)
 
-        active = int(self._NUM_SEGS * self._display_level)
-        peak_seg = int(self._NUM_SEGS * self._peak)
-        show_peak = self._peak > 0.04 and peak_seg < self._NUM_SEGS
+        active = int(num_segs * self._display_level)
+        peak_seg = int(num_segs * self._peak)
+        show_peak = self._peak > 0.04 and peak_seg < num_segs
 
-        for i in range(self._NUM_SEGS):
-            x = bar_x + i * (seg_w + self._SEG_GAP)
-            color = self._seg_color(i, active, peak_seg, show_peak)
-            c.create_rectangle(x, bar_y, x + seg_w, bar_y + self._TRACK_H, fill=color, outline="")
+        for i in range(num_segs):
+            x = bar_x + i * step
+            color = self._seg_color(i, active, peak_seg, show_peak, num_segs)
+            c.create_rectangle(x, bar_y, x + self._SEG_SIZE, bar_y + self._SEG_SIZE, fill=color, outline="")
 
 
 # ── Worker classes ────────────────────────────────────────────────────────────
@@ -517,6 +517,7 @@ class RecorderWindow:
         root.title("SuperVoxtral")
         root.attributes("-topmost", True)  # type: ignore[arg-type]
         root.minsize(420, 0)
+        root.configure(padx=12, pady=8)
 
         # Build UI widgets
         self._build_ui()
@@ -561,8 +562,8 @@ class RecorderWindow:
         if self.cfg.defaults.language:
             info_parts.append(f"lang: {self.cfg.defaults.language}")
         tk.Label(
-            root, text="  \u00b7  ".join(info_parts), font=("TkFixedFont", 9),
-        ).pack(anchor="w", padx=10, pady=(0, 2))
+            root, text="  \u00b7  ".join(info_parts), font=("TkFixedFont", 9), fg="#FA500E",
+        ).pack(pady=(0, 2))
 
         # Checkboxes row 1: audio retention
         self._keep_raw_var = tk.BooleanVar(value=self.cfg.defaults.keep_raw_audio)
@@ -594,14 +595,13 @@ class RecorderWindow:
             chk2, text="Open data folder", command=self._on_open_data_dir,
         ).pack(side="right")
 
-        # Separator
-        ttk.Separator(root, orient="horizontal").pack(fill="x", padx=8, pady=(2, 4))
-
         # Status label
+        status_frame = tk.Frame(root, relief="groove", bd=1)
+        status_frame.pack(fill="x", padx=10, pady=(2, 6))
         self._status_label = tk.Label(
-            root, text="", font=("TkFixedFont", 12), anchor="w",
+            status_frame, text="", font=("TkFixedFont", 11), anchor="w",
         )
-        self._status_label.pack(fill="x", padx=10, pady=(2, 6))
+        self._status_label.pack(fill="x", padx=6, pady=3)
 
         # Action buttons row (Transcribe, prompt keys, Cancel)
         ttk.Style().configure("Cancel.TButton", font=("TkDefaultFont", 0, "bold"))
