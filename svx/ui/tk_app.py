@@ -159,10 +159,11 @@ class LevelMeterWidget:
                 text=self._label, anchor="e", font=("TkDefaultFont", 11, "bold"),
             )
 
-        # Segmented bar — square pixels
+        # Segmented bar — 2-row square pixels
         bar_x = lw + 4
         bar_w = max(1, (c.winfo_width() or 440) - bar_x - 12)
-        bar_y = (h - self._SEG_SIZE) // 2
+        bar_h = 2 * self._SEG_SIZE + self._SEG_GAP
+        bar_y = (h - bar_h) // 2
         step = self._SEG_SIZE + self._SEG_GAP
         num_segs = max(1, (bar_w + self._SEG_GAP) // step)
 
@@ -173,7 +174,11 @@ class LevelMeterWidget:
         for i in range(num_segs):
             x = bar_x + i * step
             color = self._seg_color(i, active, peak_seg, show_peak, num_segs)
+            # Row 1
             c.create_rectangle(x, bar_y, x + self._SEG_SIZE, bar_y + self._SEG_SIZE, fill=color, outline="")
+            # Row 2
+            y2 = bar_y + self._SEG_SIZE + self._SEG_GAP
+            c.create_rectangle(x, y2, x + self._SEG_SIZE, y2 + self._SEG_SIZE, fill=color, outline="")
 
 
 # ── Worker classes ────────────────────────────────────────────────────────────
@@ -553,18 +558,6 @@ class RecorderWindow:
                 root, "LOOP", device_name=self.cfg.defaults.loopback_device
             )
 
-        # Info line
-        info_parts = [
-            f"model: {self.cfg.defaults.model}",
-            f"llm: {self.cfg.defaults.chat_model}",
-            f"audio: {self.cfg.defaults.format}",
-        ]
-        if self.cfg.defaults.language:
-            info_parts.append(f"lang: {self.cfg.defaults.language}")
-        tk.Label(
-            root, text="  \u00b7  ".join(info_parts), font=("TkFixedFont", 9), fg="#FA500E",
-        ).pack(pady=(0, 2))
-
         # Checkboxes row 1: audio retention
         self._keep_raw_var = tk.BooleanVar(value=self.cfg.defaults.keep_raw_audio)
         self._keep_compressed_var = tk.BooleanVar(value=self.cfg.defaults.keep_compressed_audio)
@@ -594,6 +587,19 @@ class RecorderWindow:
         ttk.Button(
             chk2, text="Open data folder", command=self._on_open_data_dir,
         ).pack(side="right")
+
+        # Info line (just above status)
+        info_parts = [
+            f"model: {self.cfg.defaults.model}",
+            f"llm: {self.cfg.defaults.chat_model}",
+            f"audio: {self.cfg.defaults.format}",
+        ]
+        if self.cfg.defaults.language:
+            info_parts.append(f"lang: {self.cfg.defaults.language}")
+        tk.Label(
+            root, text="  \u00b7  ".join(info_parts), font=("TkFixedFont", 9), fg="#FA500E",
+            anchor="w",
+        ).pack(fill="x", padx=10, pady=(2, 0))
 
         # Status label
         self._status_label = tk.Label(
