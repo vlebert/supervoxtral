@@ -1,9 +1,11 @@
 # supervoxtral
 
 **GUI**:
+
 ![Supervoxtral](supervoxtral.gif)
 
 **CLI**:
+
 ![Supervoxtral cli](supervoxtral-cli.gif)
 
 SuperVoxtral is a lightweight Python CLI/GUI utility for recording audio and processing it via a 2-step pipeline using Mistral's APIs.
