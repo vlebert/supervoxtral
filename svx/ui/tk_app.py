@@ -81,7 +81,7 @@ class LevelMeterWidget:
     _LABEL_W = 120
     _SEG_SIZE = 5    # square pixel size
     _SEG_GAP = 2     # gap between squares
-    _CANVAS_H = 38
+    _CANVAS_H = 28
 
     def __init__(self, parent: tk.Misc, label: str, device_name: str = "") -> None:
         self._label = label
@@ -159,11 +159,10 @@ class LevelMeterWidget:
                 text=self._label, anchor="e", font=("TkDefaultFont", 11, "bold"),
             )
 
-        # Segmented bar — 2-row square pixels
+        # Segmented bar — single-row square pixels
         bar_x = lw + 4
         bar_w = max(1, (c.winfo_width() or 440) - bar_x - 12)
-        bar_h = 2 * self._SEG_SIZE + self._SEG_GAP
-        bar_y = (h - bar_h) // 2
+        bar_y = (h - self._SEG_SIZE) // 2
         step = self._SEG_SIZE + self._SEG_GAP
         num_segs = max(1, (bar_w + self._SEG_GAP) // step)
 
@@ -174,11 +173,7 @@ class LevelMeterWidget:
         for i in range(num_segs):
             x = bar_x + i * step
             color = self._seg_color(i, active, peak_seg, show_peak, num_segs)
-            # Row 1
             c.create_rectangle(x, bar_y, x + self._SEG_SIZE, bar_y + self._SEG_SIZE, fill=color, outline="")
-            # Row 2
-            y2 = bar_y + self._SEG_SIZE + self._SEG_GAP
-            c.create_rectangle(x, y2, x + self._SEG_SIZE, y2 + self._SEG_SIZE, fill=color, outline="")
 
 
 # ── Worker classes ────────────────────────────────────────────────────────────
