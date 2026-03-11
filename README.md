@@ -127,8 +127,6 @@ To enable fast, hotkey-driven access on macOS, integrate SuperVoxtral with the S
 2. Add the "Run Shell Script" action with input: `svx record --gui`.
 3. In shortcut details, set a keyboard shortcut (e.g., Cmd+Shift+V).
 
-![macOS Shortcut Setup](macos-shortcut.png)
-
 ## Usage (CLI)
 
 The CLI provides config utilities and a unified `record` entrypoint for both CLI and GUI modes, using a centralized pipeline for consistent behavior (recording, conversion, transcription, saving, clipboard copy, logging).
@@ -195,6 +193,7 @@ By default in CLI, uses the 'default' prompt from config.toml `[prompt.default]`
 
 ## Changelog
 
+- 0.9.1: Fix tkinter init in restricted launch environments (macOS Shortcuts, launchd, cron) — auto-detects TCL_LIBRARY / TK_LIBRARY from the Python prefix before importing tkinter, fixing "Can't find a usable init.tcl" with python-build-standalone (uv). Cleaner error message when tkinter is missing.
 - 0.9.0: Tkinter GUI — pure stdlib (no PySide6/Qt) for better performance and faster launch.
 - 0.8.0: New `svx process` command — feed any existing audio/video file (WAV, MP3, M4A, FLAC, Opus, OGG, MP4, MOV, MKV, AVI, WebM) through the full transcription pipeline without recording. The original file is never deleted. Parallel chunk transcription via `ThreadPoolExecutor` for faster processing of long files. Supports non-WAV inputs via ffmpeg stream copy before chunking. Improved Opus encoding for VoIP quality.
 - 0.7.0: CLI live recording display — `svx record` now shows an animated panel during recording with real-time audio level meters (MIC always, LOOP when a loopback device is configured), a live elapsed time counter (MM:SS), and a config summary (model, llm, audio format, language). Press Enter to stop as before.
