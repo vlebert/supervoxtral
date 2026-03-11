@@ -444,7 +444,8 @@ def record(
                     "  • Ubuntu/Debian: [bold]sudo apt-get install python3-tk[/bold]\n"
                     "  • macOS Shortcut: source your shell profile before calling svx\n"
                     "    [dim]source ~/.zprofile && svx record --gui[/dim]\n"
-                    "  • uv (recommended): reinstall using [bold]uv tool install supervoxtral[/bold] "
+                    "  • uv (recommended): reinstall using "
+                    "[bold]uv tool install supervoxtral[/bold] "
                     "(uv's bundled Python includes tkinter)"
                 )
                 raise SystemExit(1) from None

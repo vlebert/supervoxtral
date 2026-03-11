@@ -189,7 +189,9 @@ class LevelMeterWidget:
         for i in range(num_segs):
             x = bar_x + i * step
             color = self._seg_color(i, active, peak_seg, show_peak, num_segs)
-            c.create_rectangle(x, bar_y, x + self._SEG_SIZE, bar_y + self._SEG_SIZE, fill=color, outline="")
+            c.create_rectangle(
+                x, bar_y, x + self._SEG_SIZE, bar_y + self._SEG_SIZE, fill=color, outline=""
+            )
 
 
 # ── Worker classes ────────────────────────────────────────────────────────────
