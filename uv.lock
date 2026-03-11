@@ -885,7 +885,7 @@ requires-dist = [
     { name = "soundfile" },
     { name = "typer" },
 ]
-provides-extras = ["gui", "dev"]
+provides-extras = ["dev"]
 
 [[package]]
 name = "typer"
