@@ -68,7 +68,7 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
 ## Build
 ```bash
 # Setup (creates .venv, editable install, lockfile-based)
-uv sync --extra dev --extra gui
+uv sync --extra dev
 ```
 
 ## Linting and Type Checking
@@ -103,8 +103,8 @@ svx config show    # Display current config
 
 ## Maintenance
 
-- use `uv sync --extra dev --extra gui` to install/update dependencies
-- after updating `pyproject.toml`, run `uv sync --extra dev --extra gui` to refresh the environment
+- use `uv sync --extra dev` to install/update dependencies
+- after updating `pyproject.toml`, run `uv sync --extra dev` to refresh the environment
 - When adding modules: Propagate Config instance; use RecordingPipeline for recording flows; handle temp files via keep_* flags.
 - Test temp cleanup: Verify no leftovers in default mode (keep_*=false).
 - `svx process` must never delete the user's original file: always call `pipeline.clean(..., keep_raw=True)`.

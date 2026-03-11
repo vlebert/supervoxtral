@@ -28,7 +28,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gui = []  # tkinter is bundled with Python — no extra dependencies needed
 dev = ["ruff", "basedpyright"]
 
 [project.scripts]

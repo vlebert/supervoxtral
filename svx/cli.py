@@ -434,7 +434,19 @@ def record(
 
     # If GUI requested, launch GUI with the resolved parameters and exit.
     if gui:
-        from svx.ui.tk_app import run_gui
+        try:
+            from svx.ui.tk_app import run_gui
+        except ModuleNotFoundError as exc:
+            if "tkinter" in str(exc):
+                console.print(
+                    "[red]Error:[/red] tkinter is not available in this Python installation.\n"
+                    "  • macOS (Homebrew Python): [bold]brew install python-tk@3.x[/bold]\n"
+                    "  • Ubuntu/Debian: [bold]sudo apt-get install python3-tk[/bold]\n"
+                    "  • uv (recommended): reinstall using [bold]uv tool install supervoxtral[/bold] "
+                    "(uv's bundled Python includes tkinter)"
+                )
+                raise SystemExit(1) from None
+            raise
 
         # Pass config object to the GUI call
         run_gui(
