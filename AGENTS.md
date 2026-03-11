@@ -31,7 +31,7 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
   - `openai.py`: OpenAI Whisper implementation
   - `__init__.py`: Provider registry (get_provider)
 - **svx/ui/**:
-  - `qt_app.py`: PySide6 GUI (RecorderWindow/Worker) using Pipeline; dynamic buttons per prompt key; persistent checkboxes for `keep_raw_audio` / `keep_compressed_audio` via QSettings (override TOML without editing it). `AudioLevelMonitor` Qt adapter wraps `_CoreMonitor` (push mode) and emits `levels(mic, loop)` at 20 Hz via QTimer.
+  - `tk_app.py`: Pure-stdlib tkinter GUI (RecorderWindow/RecorderWorker) using Pipeline; dynamic buttons per prompt key; persistent checkboxes for `keep_raw_audio` / `keep_compressed_audio` via JSON settings file (override TOML without editing it). `AudioLevelMonitor` adapter polls `_CoreMonitor` (push mode) via `root.after()` at 20 Hz. Single-row segmented LED-style level meters (MIC always, LOOP when loopback configured).
 
 ### Execution Flow
 
