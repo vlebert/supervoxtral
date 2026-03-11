@@ -17,17 +17,33 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import queue
 import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
+from typing import Any
+
+# python-build-standalone (uv's bundled Python) stores Tcl/Tk under sys.base_prefix
+# but does not set TCL_LIBRARY / TK_LIBRARY. Restricted launch environments (macOS
+# Shortcuts, launchd, cron) don't inherit these from the user's shell, causing
+# tk.Tk() to raise "Can't find a usable init.tcl". Set them before importing tkinter.
+if "TCL_LIBRARY" not in os.environ:
+    _lib = Path(sys.base_prefix) / "lib"
+    _tcl = next(_lib.glob("tcl8*"), None)
+    _tk = next(_lib.glob("tk8*"), None)
+    if _tcl:
+        os.environ["TCL_LIBRARY"] = str(_tcl)
+    if _tk:
+        os.environ["TK_LIBRARY"] = str(_tk)
+    del _lib, _tcl, _tk
+
 import tkinter as tk
 import tkinter.filedialog as filedialog
 import tkinter.messagebox as messagebox
-from pathlib import Path
 from tkinter import ttk
-from typing import Any
 
 import svx.core.config as config
 from svx.core.config import Config

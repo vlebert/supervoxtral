@@ -436,12 +436,14 @@ def record(
     if gui:
         try:
             from svx.ui.tk_app import run_gui
-        except ModuleNotFoundError as exc:
-            if "tkinter" in str(exc):
+        except (ModuleNotFoundError, ImportError) as exc:
+            if "tkinter" in str(exc) or "_tkinter" in str(exc):
                 console.print(
                     "[red]Error:[/red] tkinter is not available in this Python installation.\n"
                     "  • macOS (Homebrew Python): [bold]brew install python-tk@3.x[/bold]\n"
                     "  • Ubuntu/Debian: [bold]sudo apt-get install python3-tk[/bold]\n"
+                    "  • macOS Shortcut: source your shell profile before calling svx\n"
+                    "    [dim]source ~/.zprofile && svx record --gui[/dim]\n"
                     "  • uv (recommended): reinstall using [bold]uv tool install supervoxtral[/bold] "
                     "(uv's bundled Python includes tkinter)"
                 )
