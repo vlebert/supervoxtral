@@ -193,6 +193,7 @@ By default in CLI, uses the 'default' prompt from config.toml `[prompt.default]`
 
 ## Changelog
 
+- 0.9.0: Tkinter GUI — pure stdlib (no PySide6/Qt) for better performance and faster launch.
 - 0.8.0: New `svx process` command — feed any existing audio/video file (WAV, MP3, M4A, FLAC, Opus, OGG, MP4, MOV, MKV, AVI, WebM) through the full transcription pipeline without recording. The original file is never deleted. Parallel chunk transcription via `ThreadPoolExecutor` for faster processing of long files. Supports non-WAV inputs via ffmpeg stream copy before chunking. Improved Opus encoding for VoIP quality.
 - 0.7.0: CLI live recording display — `svx record` now shows an animated panel during recording with real-time audio level meters (MIC always, LOOP when a loopback device is configured), a live elapsed time counter (MM:SS), and a config summary (model, llm, audio format, language). Press Enter to stop as before.
 - 0.6.0: Split `keep_audio_files` into two independent flags — `keep_raw_audio` (saves WAV) and `keep_compressed_audio` (saves opus/mp3). Fixes bug where the compressed file was always deleted even when `keep_audio_files = true`. GUI adds two persistent checkboxes to toggle each flag without editing config.toml. `--save-all` and auto-save for long recordings activate both flags.
