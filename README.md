@@ -1,9 +1,9 @@
 # supervoxtral
 
-**GUI**: 
-![Supervoxtral](supervoxtral.gif) 
+**GUI**:
+![Supervoxtral](supervoxtral.gif)
 
-**CLI**: 
+**CLI**:
 ![Supervoxtral cli](supervoxtral-cli.gif)
 
 SuperVoxtral is a lightweight Python CLI/GUI utility for recording audio and processing it via a 2-step pipeline using Mistral's APIs.
@@ -27,9 +27,12 @@ The GUI is minimal, launches fast, and can be bound to a system hotkey. Upon sto
 
 ![Supervoxtral](supervoxtral-review-mode.png)
 
+> **Platform note**: SuperVoxtral has been tested on macOS only at this stage. It should work on Linux and Windows but hasn't been validated — feedback welcome via [GitHub Issues](https://github.com/voxtral/supervoxtral/issues).
+
 ## Requirements
 
 - Python 3.11+
+- **tkinter** (GUI): part of the Python standard library, but not always bundled — see the installation notes below.
 - ffmpeg (for MP3/Opus conversions)
   - macOS: `brew install ffmpeg`
   - Ubuntu/Debian: `sudo apt-get install ffmpeg`
@@ -37,25 +40,29 @@ The GUI is minimal, launches fast, and can be bound to a system hotkey. Upon sto
 
 ## Installation
 
-The package is available on PyPI. We recommend using `uv` (a fast Python package installer) for a simple, global tool installation—no virtual environment setup required.
+### Recommended: uv
 
+[`uv`](https://docs.astral.sh/uv/) is the recommended way to install SuperVoxtral. It manages its own Python distribution (which includes tkinter on macOS), avoiding common setup issues. Install it first if needed:
 
-- For GUI support (includes PySide6):
-  ```
-  uv tool install "supervoxtral[gui]"
-  # to update: uv tool update "supervoxtral[gui]"
-  ```
+```
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
-- For core CLI only functionality:
-  ```
-  uv tool install supervoxtral
-  ```
+Then install SuperVoxtral as a global tool:
 
-This installs the `svx` command globally. If you don't have `uv`, install it first via `curl -LsSf https://astral.sh/uv/install.sh | sh` (or from https://docs.astral.sh/uv/getting-started/installation/).
+```
+uv tool install supervoxtral
+# to update: uv tool upgrade supervoxtral
+```
 
-**Alternative: Using pip with a virtual environment**
+> **tkinter availability**: The GUI uses Python's built-in `tkinter` library. Using `uv` (recommended above) handles this automatically via its bundled Python. Platform-specific notes:
+> - **macOS**: The system Python (`/usr/bin/python3`) and some Homebrew Pythons do not include tkinter. If you use Homebrew Python: `brew install python-tk@3.x`.
+> - **Ubuntu/Debian Linux**: tkinter is a separate system package — install it with `sudo apt-get install python3-tk`.
+> - **Windows**: tkinter is included in the official Python installer from python.org; no extra steps needed.
 
-If you prefer not to use uv, you can install via pip in a virtual environment:
+### Alternative: pip
+
+If you prefer `pip` in a virtual environment:
 
 1. Create and activate a virtual environment:
 
@@ -72,20 +79,20 @@ If you prefer not to use uv, you can install via pip in a virtual environment:
      ```
 
 2. Install the package:
-
-   For GUI support (includes PySide6):
    ```
-   pip install "supervoxtral[gui]"
+   pip install supervoxtral
    ```
 
-This installs the `svx` command within the virtual environment. Make sure to activate the environment before running `svx`.
+   Make sure the Python used includes tkinter (see the tkinter availability note above).
 
-**For development** (local editing):
+### Development
+
 1. Clone the repo and navigate to the project root.
 2. Install dependencies (creates `.venv` automatically, editable mode, lockfile-based):
    ```
-   uv sync --extra dev --extra gui
+   uv sync --extra dev
    ```
+   > **tkinter** (needed for `--gui`) is stdlib but not always bundled. If `svx record --gui` fails with a tkinter error, see the [tkinter availability note](#recommended-uv) above.
 3. Run linting and type checking:
    ```
    uv run ruff check svx/
@@ -94,24 +101,24 @@ This installs the `svx` command within the virtual environment. Make sure to act
 
 ## Quick Start
 
-To get started quickly with SuperVoxtral:
-
 1. Initialize the configuration: `svx config init`
    This creates the default `config.toml` file with zero-footprint settings.
 
 2. Open the configuration directory: `svx config open`
    Edit `config.toml` and add your [Mistral API key](https://console.mistral.ai/api-keys) under the `[providers.mistral]` section:
-   ```
+   ```toml
    [providers.mistral]
    api_key = "your_mistral_api_key_here"
    ```
 
 3. Launch the GUI: `svx record --gui`
-   This opens the minimal GUI and starts recording immediately. Real-time level meters (MIC / LOOP) confirm that audio is being captured. Click **Transcribe** for pure transcription (no prompt) or a button for each configured prompt (e.g., **Default**, **Mail**, **Translate**) for prompted transcription; results are copied to the clipboard automatically. (`--transcribe` is ignored in GUI mode with a warning.)
+   This opens the minimal GUI and starts recording immediately. Real-time level meters (MIC / LOOP) confirm that audio is being captured. Click **Transcribe** for pure transcription (no prompt) or a button for each configured prompt (e.g., **Default**, **Mail**, **Translate**) for prompted transcription; results are copied to the clipboard automatically.
+
+See the [Configuration Reference](docs/configuration-reference.md) for the full configuration reference.
 
 ### macOS Shortcuts Integration
 
-To enable fast, hotkey-driven access on macOS, integrate SuperVoxtral with the Shortcuts app. Create a new Shortcut that runs `svx record --gui` via a "Run Shell Script" action (ensure `svx` is in your PATH). Assign a global hotkey in Shortcuts settings for instant GUI launch—ideal for quick voice-to-text workflows, with results copied directly to the clipboard.
+To enable fast, hotkey-driven access on macOS, integrate SuperVoxtral with the Shortcuts app. Create a new Shortcut that runs `svx record --gui` via a "Run Shell Script" action (ensure `svx` is in your PATH). Assign a global hotkey in Shortcuts settings for instant GUI launch — ideal for quick voice-to-text workflows, with results copied directly to the clipboard.
 
 #### Quick Setup Steps
 1. Open the Shortcuts app and create a new shortcut.
@@ -119,184 +126,6 @@ To enable fast, hotkey-driven access on macOS, integrate SuperVoxtral with the S
 3. In shortcut details, set a keyboard shortcut (e.g., Cmd+Shift+V).
 
 ![macOS Shortcut Setup](macos-shortcut.png)
-
-## Capturing system audio (loopback)
-
-To record both your microphone and the audio playing on your computer (e.g., remote participants in a video call), you need a loopback audio device. The setup depends on your OS:
-
-### macOS — BlackHole (free, open source)
-
-1. Install BlackHole:
-   ```
-   brew install --cask blackhole-2ch
-   ```
-   (Restart may be required after install.)
-
-2. Open **Audio MIDI Setup** (Spotlight → "Audio MIDI Setup").
-
-3. Click `+` at the bottom left → **Create Multi-Output Device**.
-
-4. Check your output device (e.g., "Headphones" or "External Speakers") — it must be **first** (clock source).
-
-5. Check **BlackHole 2ch**.
-
-6. Optionally rename it (e.g., "Headphones + BlackHole").
-
-7. Set this Multi-Output Device as your system sound output (System Settings → Sound → Output).
-
-8. In your `config.toml`:
-   ```toml
-   loopback_device = "BlackHole 2ch"
-   ```
-
-> **Note:** System volume control does not work with Multi-Output Devices (macOS limitation). Adjust volume in individual applications or in Audio MIDI Setup.
-
-### Linux — PulseAudio monitor (built-in)
-
-PulseAudio exposes a `.monitor` source for every output device. No additional software needed.
-
-1. Find your monitor source name:
-   ```
-   pactl list sources short | grep monitor
-   ```
-   Example output: `alsa_output.pci-0000_00_1f.3.analog-stereo.monitor`
-
-2. In your `config.toml`:
-   ```toml
-   loopback_device = "Monitor of Built-in Audio"
-   ```
-   (Use the name as shown by `pactl` or `sounddevice`.)
-
-### Windows — WASAPI loopback (built-in)
-
-Windows supports loopback capture natively via WASAPI since Vista.
-
-1. The loopback device typically appears as "Stereo Mix" or similar in your sound settings. You may need to enable it:
-   - Right-click the speaker icon → Sound Settings → More sound settings
-   - Recording tab → right-click → Show Disabled Devices → Enable "Stereo Mix"
-
-2. In your `config.toml`:
-   ```toml
-   loopback_device = "Stereo Mix"
-   ```
-
-### How it works
-
-When `loopback_device` is configured, SuperVoxtral opens two audio inputs simultaneously (microphone + loopback) and mixes them into a single mono WAV file. You can adjust the relative volume of each source via `mic_gain` and `loopback_gain` in `config.toml` (default: 1.0 each).
-
-When `loopback_device` is not set (default), only the microphone is recorded.
-
-## Configuration (API keys and prompts)
-
-API keys and default behavior are configured only in your user configuration file (config.toml), not via environment variables.
-
-- Location of the user config:
-  - macOS: ~/Library/Application Support/SuperVoxtral/config.toml
-  - Linux: ${XDG_CONFIG_HOME:-~/.config}/supervoxtral/config.toml
-  - Windows: %APPDATA%/SuperVoxtral/config.toml
-
-- Initialize your user config and user prompt file:
-  - `svx config init`: Creates config.toml (with sensible defaults, including zero-footprint mode) and a user prompt file at: `~/Library/Application Support/SuperVoxtral/` (macOS), `${XDG_CONFIG_HOME:-~/.config}/supervoxtral/` (Linux), or `%APPDATA%/SuperVoxtral/prompt/` (Windows).
-  - `svx config open`: Opens the directory.
-  - `svx config show`: Displays the current configuration.
-
-Here's an example of the default `config.toml` generated by `svx config init`:
-
-```toml
-# SuperVoxtral - User configuration
-#
-# Basics:
-# - This configuration controls the default behavior of `svx record`.
-# - The parameters below override the binary's built-in defaults.
-# - You can override a few options at runtime via the CLI:
-#   --prompt / --prompt-file (set a one-off prompt for this run)
-#   --log-level (debugging)
-#   --outfile-prefix (one-off output naming)
-#
-# Output persistence:
-# - Set keep_* = true to create and save files to project
-#   directories (recordings/, transcripts/, logs/).
-# - false (default): use temp files/console only (no disk
-#   footprint in project dir).
-#
-# Authentication:
-# - API keys are defined in provider-specific sections in this file.
-[providers.mistral]
-# api_key = ""
-
-[defaults]
-# Provider to use (currently supported: "mistral")
-provider = "mistral"
-
-# File format sent to the provider: "wav" | "mp3" | "opus"
-# Recording is always WAV; conversion is applied if "mp3" or "opus"
-format = "opus"
-
-# Model for audio transcription (dedicated endpoint)
-model = "voxtral-mini-latest"
-
-# Model for text transformation via LLM (applied after transcription when a prompt is used)
-chat_model = "mistral-small-latest"
-
-# Language hint (may help the provider)
-language = "fr"
-
-# Context bias: up to 100 words/phrases to help recognize specific vocabulary
-# (proper nouns, technical terms, brand names, etc.)
-# context_bias = ["SuperVoxtral", "Mistral AI", "Voxtral"]
-context_bias = []
-
-# Speaker diarization (identify speakers in transcription)
-diarize = true
-
-# Auto-chunking for long recordings (seconds)
-# Recordings longer than chunk_duration are split into overlapping chunks
-chunk_duration = 300   # 5 minutes
-chunk_overlap = 30     # 30s overlap between chunks
-
-# Loopback device for dual audio capture (mic + system audio)
-# See "Capturing system audio" section for setup instructions
-# loopback_device = "BlackHole 2ch"
-
-# Audio input device (leave commented to use system default)
-#device = ""
-
-# Output persistence:
-# - keep_raw_audio: true saves the raw WAV recording to recordings/
-keep_raw_audio = false
-# - keep_compressed_audio: true saves the compressed file (opus/mp3) to recordings/
-keep_compressed_audio = false
-# - keep_transcript_files: false prints/copies only (no
-#   transcripts/ dir), true saves to transcripts/
-keep_transcript_files = false
-# - keep_log_files: false console only (no logs/ dir), true
-#   saves to logs/app.log
-keep_log_files = false
-
-# Automatically copy the transcribed text to the system clipboard
-copy = true
-
-# Log level: "DEBUG" | "INFO" | "WARNING" | "ERROR"
-log_level = "INFO"
-
-[prompt.default]
-# Default user prompt source:
-# - Option 1: Use a file (recommended)
-file = "~/.config/supervoxtral/prompt/user.md"
-#
-# - Option 2: Inline prompt (less recommended for long text)
-# text = "Please transcribe the audio and provide a concise summary in French."
-
-[prompt.test]
-# Example additional prompt
-# file = "/path/to/another_prompt.md"
-# text = "Summarize the meeting in bullet points."
-```
-
-**Configuration is centralized via a structured `Config` object loaded from your user configuration file (`config.toml`). CLI arguments override select values (e.g., prompt, log level), but most defaults (provider, model, keep flags) come from `config.toml`. No environment variables are used for API keys or settings.**
-
-No `.env` or shell environment variables are used for API keys.
-
 
 ## Usage (CLI)
 
@@ -323,13 +152,9 @@ svx record [OPTIONS]
 
 **Examples**:
 - Record with prompt: `svx record --prompt "What's in this audio?"`
-  - Records WAV, converts if needed, sends to provider with prompt, outputs to console/clipboard.
 - Persist outputs: `svx record --save-all --prompt "Summarize this"`
-  - Saves to recordings/, transcripts/, logs/.
 - Transcribe only: `svx record --transcribe`
-  - No prompt; direct transcription. Add `--save-all` to persist.
 - Launch GUI: `svx record --gui`
-  - Interactive mode: recording starts immediately; click 'Transcribe' (pure transcription, no prompt) or 'Prompt' (with resolved prompt); --transcribe ignored with warning. GUI respects config.toml and CLI flags (e.g., `--gui --save-all`).
 
 ### Process Command
 
@@ -358,32 +183,38 @@ The original file is **never deleted**, regardless of `keep_*` config flags.
 
 > Use your screen recorder to capture audio — it records mic + system audio together in a single file. Then run `svx process` on that file. This is a simpler alternative to the BlackHole loopback setup for meeting transcription.
 
-**Prompt Resolution Priority** (for non-transcribe mode):
-By default in CLI, uses the 'default' prompt from config.toml [prompt.default]. For overrides:
+### Prompt Resolution Priority (non-transcribe mode)
+
+By default in CLI, uses the 'default' prompt from config.toml `[prompt.default]`. For overrides:
 1. CLI `--user-prompt` or `--user-prompt-file`
-2. Specified prompt key (future: via --prompt-key; currently implicit 'default')
-3. config.toml [prompt.default] (text or file)
-4. User prompt file (user.md in config dir)
-5. Fallback: "What's in this audio?"
+2. config.toml `[prompt.default]` (text or file)
+3. User prompt file (`user.md` in config dir)
+4. Fallback: "What's in this audio?"
 
 ## Changelog
 
+- 0.9.0: Tkinter GUI — pure stdlib (no PySide6/Qt) for better performance and faster launch.
 - 0.8.0: New `svx process` command — feed any existing audio/video file (WAV, MP3, M4A, FLAC, Opus, OGG, MP4, MOV, MKV, AVI, WebM) through the full transcription pipeline without recording. The original file is never deleted. Parallel chunk transcription via `ThreadPoolExecutor` for faster processing of long files. Supports non-WAV inputs via ffmpeg stream copy before chunking. Improved Opus encoding for VoIP quality.
 - 0.7.0: CLI live recording display — `svx record` now shows an animated panel during recording with real-time audio level meters (MIC always, LOOP when a loopback device is configured), a live elapsed time counter (MM:SS), and a config summary (model, llm, audio format, language). Press Enter to stop as before.
-- 0.6.0: Split `keep_audio_files` into two independent flags — `keep_raw_audio` (saves WAV) and `keep_compressed_audio` (saves opus/mp3). Fixes bug where the compressed file was always deleted even when `keep_audio_files = true`. GUI adds two persistent checkboxes (stored via QSettings) to toggle each flag without editing config.toml. `--save-all` and auto-save for long recordings activate both flags.
+- 0.6.0: Split `keep_audio_files` into two independent flags — `keep_raw_audio` (saves WAV) and `keep_compressed_audio` (saves opus/mp3). Fixes bug where the compressed file was always deleted even when `keep_audio_files = true`. GUI adds two persistent checkboxes to toggle each flag without editing config.toml. `--save-all` and auto-save for long recordings activate both flags.
 - 0.5.1: GUI refinements — level meters now show the active audio interface name; window dragging fixed on all non-interactive areas; info/checkbox/status rows left-aligned with bar start; cleaner status section.
-- 0.5.0: GUI improvements — replace decorative waveform with real-time segmented LED-style audio level meters (MIC always visible, LOOP shown when a loopback device is configured), giving immediate feedback on whether signal is present before committing to a recording; redesigned info bar now shows `model`, `llm`, `audio format` and `lang` fields explicitly (avoids confusion between the Opus audio codec and the Anthropic Opus model); added window title.
-- 0.4.2: Fix audio saturation and distortion — record at device native sample rate (typically 48 kHz) instead of 16 kHz to eliminate PortAudio resampling artifacts; switch to float32 capture pipeline to avoid int16 clipping during format conversion. Remove 0.5 averaging factor in dual recording mix (meeting use case: sources are mutually exclusive, averaging unnecessarily halves the signal level).
-- 0.4.1: Fix dual audio mix attenuation — removed unnecessary 0.5 factor that was halving mic volume when loopback was silent; `np.clip` already prevents int16 overflow. Refactored mixing logic into a `_mix_and_write` helper.
-- 0.4.0: Meeting recording support — speaker diarization (enabled by default), auto-chunking for long recordings (> 5 min) with overlap and segment deduplication, dual audio capture (mic + system loopback with configurable per-source gain). User data files now stored in platform-standard directories instead of cwd. Long recordings auto-save all files for data protection.
-- 0.3.0: Add `context_bias` support for Mistral Voxtral transcription — a list of up to 100 words/phrases to help the model recognize specific vocabulary (proper nouns, technical terms, brand names). Configurable in `config.toml` under `[defaults]`.
-- 0.2.0: 2-step pipeline (transcription → transformation). Replaces chat-with-audio by dedicated transcription endpoint + text-based LLM. New `chat_model` config option. Raw transcript saved separately when transformation is applied.
+- 0.5.0: GUI improvements — replace decorative waveform with real-time segmented LED-style audio level meters (MIC always visible, LOOP shown when a loopback device is configured); redesigned info bar now shows `model`, `llm`, `audio format` and `lang` fields explicitly.
+- 0.4.2: Fix audio saturation and distortion — record at device native sample rate (typically 48 kHz) instead of 16 kHz to eliminate PortAudio resampling artifacts; switch to float32 capture pipeline to avoid int16 clipping during format conversion.
+- 0.4.1: Fix dual audio mix attenuation — removed unnecessary 0.5 factor that was halving mic volume when loopback was silent.
+- 0.4.0: Meeting recording support — speaker diarization (enabled by default), auto-chunking for long recordings (> 5 min) with overlap and segment deduplication, dual audio capture (mic + system loopback with configurable per-source gain). User data files now stored in platform-standard directories.
+- 0.3.0: Add `context_bias` support for Mistral Voxtral transcription — a list of up to 100 words/phrases to help the model recognize specific vocabulary. Configurable in `config.toml` under `[defaults]`.
+- 0.2.0: 2-step pipeline (transcription → transformation). Replaces chat-with-audio by dedicated transcription endpoint + text-based LLM. New `chat_model` config option.
 - 0.1.5: Fix bug on prompt selecting
 - 0.1.4: Support for multiple prompts in config.toml with dynamic GUI buttons for each prompt key
-- 0.1.3: Minor style update
 - 0.1.2: Interactive mode in GUI (choose transcribe / prompt / cancel while recording)
-- 0.1.1: Minor updates to default config and default prompt
 
 ## License
 
 MIT
+
+---
+
+## Appendix
+
+- [Configuration Reference](docs/configuration-reference.md) — config file location, all options, example `config.toml`
+- [Capturing System Audio](docs/capturing-system-audio.md) — screen recorder workflow, BlackHole (macOS), PulseAudio (Linux), WASAPI (Windows)

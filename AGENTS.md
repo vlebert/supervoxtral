@@ -31,7 +31,7 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
   - `openai.py`: OpenAI Whisper implementation
   - `__init__.py`: Provider registry (get_provider)
 - **svx/ui/**:
-  - `qt_app.py`: PySide6 GUI (RecorderWindow/Worker) using Pipeline; dynamic buttons per prompt key; persistent checkboxes for `keep_raw_audio` / `keep_compressed_audio` via QSettings (override TOML without editing it). `AudioLevelMonitor` Qt adapter wraps `_CoreMonitor` (push mode) and emits `levels(mic, loop)` at 20 Hz via QTimer.
+  - `tk_app.py`: Pure-stdlib tkinter GUI (RecorderWindow/RecorderWorker) using Pipeline; dynamic buttons per prompt key; persistent checkboxes for `keep_raw_audio` / `keep_compressed_audio` via JSON settings file (override TOML without editing it). `AudioLevelMonitor` adapter polls `_CoreMonitor` (push mode) via `root.after()` at 20 Hz. Single-row segmented LED-style level meters (MIC always, LOOP when loopback configured).
 
 ### Execution Flow
 
@@ -68,7 +68,7 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
 ## Build
 ```bash
 # Setup (creates .venv, editable install, lockfile-based)
-uv sync --extra dev --extra gui
+uv sync --extra dev
 ```
 
 ## Linting and Type Checking
@@ -103,8 +103,8 @@ svx config show    # Display current config
 
 ## Maintenance
 
-- use `uv sync --extra dev --extra gui` to install/update dependencies
-- after updating `pyproject.toml`, run `uv sync --extra dev --extra gui` to refresh the environment
+- use `uv sync --extra dev` to install/update dependencies
+- after updating `pyproject.toml`, run `uv sync --extra dev` to refresh the environment
 - When adding modules: Propagate Config instance; use RecordingPipeline for recording flows; handle temp files via keep_* flags.
 - Test temp cleanup: Verify no leftovers in default mode (keep_*=false).
 - `svx process` must never delete the user's original file: always call `pipeline.clean(..., keep_raw=True)`.
