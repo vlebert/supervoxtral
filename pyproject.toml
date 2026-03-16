@@ -24,7 +24,7 @@ dependencies = [
   "soundfile",
   "python-dotenv",
   "pyperclip",
-  "mistralai",
+  "mistralai>=2.0.0",
 ]
 
 [project.optional-dependencies]
