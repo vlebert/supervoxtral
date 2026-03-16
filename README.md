@@ -193,6 +193,7 @@ By default in CLI, uses the 'default' prompt from config.toml `[prompt.default]`
 
 ## Changelog
 
+- 0.10.0: Migrate to mistralai SDK v2 — updates the import path from `mistralai` to `mistralai.client` (namespace package restructuring in v2). No API behavior changes; all method signatures remain identical.
 - 0.9.1: Fix tkinter init in restricted launch environments (macOS Shortcuts, launchd, cron) — auto-detects TCL_LIBRARY / TK_LIBRARY from the Python prefix before importing tkinter, fixing "Can't find a usable init.tcl" with python-build-standalone (uv). Cleaner error message when tkinter is missing.
 - 0.9.0: Tkinter GUI — pure stdlib (no PySide6/Qt) for better performance and faster launch.
 - 0.8.0: New `svx process` command — feed any existing audio/video file (WAV, MP3, M4A, FLAC, Opus, OGG, MP4, MOV, MKV, AVI, WebM) through the full transcription pipeline without recording. The original file is never deleted. Parallel chunk transcription via `ThreadPoolExecutor` for faster processing of long files. Supports non-WAV inputs via ffmpeg stream copy before chunking. Improved Opus encoding for VoIP quality.
