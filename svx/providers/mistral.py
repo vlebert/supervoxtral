@@ -120,7 +120,7 @@ class MistralProvider(Provider):
             ProviderError: for expected configuration/import errors.
         """
         try:
-            from mistralai import Mistral
+            from mistralai.client import Mistral
         except Exception as e:
             raise ProviderError(
                 "Failed to import 'mistralai'. Ensure the 'mistralai' package is installed."
@@ -196,7 +196,7 @@ class MistralProvider(Provider):
             ProviderError: for expected configuration/import errors.
         """
         try:
-            from mistralai import Mistral
+            from mistralai.client import Mistral
         except Exception as e:
             raise ProviderError(
                 "Failed to import 'mistralai'. Ensure the 'mistralai' package is installed."

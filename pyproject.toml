@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "supervoxtral"
-version = "0.7.0"
+version = "0.10.0"
 description = "CLI/GUI audio recorder with 2-step pipeline: transcription (Voxtral) then text transformation (LLM)."
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -24,11 +24,10 @@ dependencies = [
   "soundfile",
   "python-dotenv",
   "pyperclip",
-  "mistralai",
+  "mistralai>=2.0.0",
 ]
 
 [project.optional-dependencies]
-gui = ["PySide6-Essentials"]
 dev = ["ruff", "basedpyright"]
 
 [project.scripts]

@@ -1,16 +1,18 @@
 """
 Audio chunking utilities for SuperVoxtral.
 
-Provides splitting of long WAV files into overlapping chunks and merging
+Provides splitting of long audio/video files into overlapping chunks and merging
 of transcription results back into a single coherent output.
 
 Dependencies:
 - soundfile (for reading/writing WAV data)
+- ffmpeg/ffprobe (for non-WAV formats, stream copy — no re-encoding)
 """
 
 from __future__ import annotations
 
 import logging
+import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,7 +23,8 @@ from svx.providers.base import TranscriptionSegment
 
 __all__ = [
     "ChunkInfo",
-    "split_wav",
+    "get_audio_duration",
+    "split_audio",
     "merge_segments",
     "merge_texts",
 ]
@@ -37,28 +40,41 @@ class ChunkInfo:
     end_seconds: float
 
 
-def split_wav(
-    wav_path: Path,
+def split_audio(
+    audio_path: Path,
     chunk_duration: int = 300,
     overlap: int = 30,
     output_dir: Path | None = None,
 ) -> list[ChunkInfo]:
     """
-    Split a WAV file into overlapping chunks.
+    Split audio or video into overlapping chunks, preserving the source format.
+
+    WAV files are split via soundfile (in-process, sample-accurate).
+    All other formats use ffmpeg stream copy (no re-encoding, fast).
 
     Args:
-        wav_path: Path to the source WAV file.
+        audio_path: Path to the source audio/video file.
         chunk_duration: Duration of each chunk in seconds.
         overlap: Overlap between consecutive chunks in seconds.
         output_dir: Directory for chunk files. Uses a temp dir if None.
 
     Returns:
-        List of ChunkInfo with paths to the chunk WAV files.
+        List of ChunkInfo with paths to the chunk files.
     """
+    if audio_path.suffix.lower() == ".wav":
+        return _split_wav(audio_path, chunk_duration, overlap, output_dir)
+    return _split_audio_ffmpeg(audio_path, chunk_duration, overlap, output_dir)
+
+
+def _split_wav(
+    wav_path: Path,
+    chunk_duration: int,
+    overlap: int,
+    output_dir: Path | None,
+) -> list[ChunkInfo]:
     info = sf.info(str(wav_path))
     samplerate = info.samplerate
-    total_frames = info.frames
-    total_duration = total_frames / samplerate
+    total_duration = info.frames / samplerate
 
     if total_duration <= chunk_duration:
         return [ChunkInfo(index=0, path=wav_path, start_seconds=0.0, end_seconds=total_duration)]
@@ -76,27 +92,14 @@ def split_wav(
     while start < total_duration:
         end = min(start + chunk_duration, total_duration)
         start_frame = int(start * samplerate)
-        end_frame = int(end * samplerate)
-        num_frames = end_frame - start_frame
+        num_frames = int(end * samplerate) - start_frame
 
-        # Read the chunk data
         data, _ = sf.read(str(wav_path), start=start_frame, frames=num_frames, dtype="int16")
-
         chunk_path = output_dir / f"chunk_{chunk_idx:03d}.wav"
-        sf.write(
-            str(chunk_path),
-            data,
-            samplerate,
-            subtype="PCM_16",
-        )
+        sf.write(str(chunk_path), data, samplerate, subtype="PCM_16")
 
         chunks.append(
-            ChunkInfo(
-                index=chunk_idx,
-                path=chunk_path,
-                start_seconds=start,
-                end_seconds=end,
-            )
+            ChunkInfo(index=chunk_idx, path=chunk_path, start_seconds=start, end_seconds=end)
         )
         logging.debug("Chunk %d: %.1fs - %.1fs -> %s", chunk_idx, start, end, chunk_path)
 
@@ -108,6 +111,115 @@ def split_wav(
     logging.info(
         "Split %s (%.1fs) into %d chunks of %ds with %ds overlap",
         wav_path.name,
+        total_duration,
+        len(chunks),
+        chunk_duration,
+        overlap,
+    )
+    return chunks
+
+
+def get_audio_duration(audio_path: Path) -> float:
+    """Return duration in seconds via ffprobe.
+
+    Raises RuntimeError if ffprobe is unavailable or fails.
+    """
+    try:
+        proc = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(audio_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        raise RuntimeError("ffprobe not found. Please install ffmpeg (e.g., brew install ffmpeg).")
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffprobe failed: {proc.stderr.strip()}")
+    return float(proc.stdout.strip())
+
+
+def _split_audio_ffmpeg(
+    audio_path: Path,
+    chunk_duration: int = 300,
+    overlap: int = 30,
+    output_dir: Path | None = None,
+) -> list[ChunkInfo]:
+    """Split audio/video into chunks using ffmpeg stream copy (no re-encoding)."""
+    from svx.core.audio import detect_ffmpeg
+
+    ffmpeg_bin = detect_ffmpeg()
+    if not ffmpeg_bin:
+        raise RuntimeError("ffmpeg not found. Please install ffmpeg (e.g., brew install ffmpeg).")
+
+    total_duration = get_audio_duration(audio_path)
+    ext = audio_path.suffix  # preserve source format
+
+    if total_duration <= chunk_duration:
+        return [ChunkInfo(index=0, path=audio_path, start_seconds=0.0, end_seconds=total_duration)]
+
+    owned_dir = output_dir is None
+    if output_dir is None:
+        output_dir = Path(tempfile.mkdtemp(prefix="svx_chunks_"))
+    else:
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+    step = chunk_duration - overlap
+    chunks: list[ChunkInfo] = []
+    chunk_idx = 0
+    start = 0.0
+
+    try:
+        while start < total_duration:
+            end = min(start + chunk_duration, total_duration)
+            chunk_path = output_dir / f"chunk_{chunk_idx:03d}{ext}"
+
+            proc = subprocess.run(
+                [
+                    ffmpeg_bin,
+                    "-y",
+                    "-ss",
+                    str(start),
+                    "-i",
+                    str(audio_path),
+                    "-t",
+                    str(end - start),
+                    "-c",
+                    "copy",
+                    str(chunk_path),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if proc.returncode != 0:
+                raise RuntimeError(f"ffmpeg chunk split failed: {proc.stderr.strip()}")
+
+            chunks.append(
+                ChunkInfo(index=chunk_idx, path=chunk_path, start_seconds=start, end_seconds=end)
+            )
+            logging.debug("Chunk %d: %.1fs - %.1fs -> %s", chunk_idx, start, end, chunk_path)
+
+            chunk_idx += 1
+            start += step
+            if end >= total_duration:
+                break
+    except Exception:
+        if owned_dir:
+            import shutil
+
+            shutil.rmtree(output_dir, ignore_errors=True)
+        raise
+
+    logging.info(
+        "Split %s (%.1fs) into %d chunks of %ds with %ds overlap",
+        audio_path.name,
         total_duration,
         len(chunks),
         chunk_duration,

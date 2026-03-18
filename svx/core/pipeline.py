@@ -5,6 +5,7 @@ import shutil
 import tempfile
 import threading
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from logging import FileHandler
 from pathlib import Path
 from typing import Any
@@ -13,13 +14,38 @@ import soundfile as sf
 
 import svx.core.config as config
 from svx.core.audio import convert_audio, record_wav, timestamp
-from svx.core.chunking import merge_segments, merge_texts, split_wav
+from svx.core.chunking import (
+    ChunkInfo,
+    get_audio_duration,
+    merge_segments,
+    merge_texts,
+    split_audio,
+)
 from svx.core.clipboard import copy_to_clipboard
 from svx.core.config import Config
 from svx.core.formatting import format_diarized_transcript
 from svx.core.storage import save_text_file, save_transcript
 from svx.providers import get_provider
 from svx.providers.base import Provider, TranscriptionResult, TranscriptionSegment
+
+
+def _needs_conversion(input_path: Path, audio_format: str) -> bool:
+    """
+    Return True if the file must be converted to reach the target audio format.
+
+    Skips conversion when the file is already in a compatible format:
+    - 'mp3' target: skip for .mp3 inputs
+    - 'opus' target: skip for .opus inputs and .ogg inputs (OGG is a container that
+      commonly carries Opus audio and is accepted by transcription APIs directly)
+    """
+    if audio_format not in {"mp3", "opus"}:
+        return False
+    ext = input_path.suffix.lower().lstrip(".")
+    if audio_format == "mp3" and ext == "mp3":
+        return False
+    if audio_format == "opus" and ext in ("opus", "ogg"):
+        return False
+    return True
 
 
 class RecordingPipeline:
@@ -60,6 +86,7 @@ class RecordingPipeline:
         self.transcribe_mode = transcribe_mode
         self.level_monitor = level_monitor
         self._chunk_dir: Path | None = None  # temp dir for chunk files
+        self._convert_dir: Path | None = None  # temp dir for conversion output
         self._recording_base: str | None = None  # base name set during record()
 
     def _status(self, msg: str) -> None:
@@ -225,35 +252,40 @@ class RecordingPipeline:
         keep_transcript = self.save_all or self.cfg.defaults.keep_transcript_files
 
         self._status(f"Splitting audio into {chunk_duration}s chunks...")
-        chunks = split_wav(audio_path, chunk_duration=chunk_duration, overlap=chunk_overlap)
+        chunks = split_audio(audio_path, chunk_duration=chunk_duration, overlap=chunk_overlap)
         self._chunk_dir = chunks[0].path.parent if chunks and chunks[0].path != audio_path else None
 
-        prov = get_provider(provider_name, cfg=self.cfg)
-
-        all_segments: list[list[TranscriptionSegment]] = []
-        all_texts: list[str] = []
-        all_raws: list[dict[str, Any]] = []
-
-        for chunk in chunks:
-            self._status(
-                f"Transcribing chunk {chunk.index + 1}/{len(chunks)} "
-                f"({chunk.start_seconds:.0f}s - {chunk.end_seconds:.0f}s)..."
-            )
+        def _transcribe_chunk(chunk: ChunkInfo) -> tuple[int, TranscriptionResult]:
+            prov = get_provider(provider_name, cfg=self.cfg)
             result = self._transcribe_single(
                 chunk.path, provider_name, model, language, diarize, prov=prov
             )
-            all_texts.append(result["text"])
-            all_raws.append(result["raw"])
-            if "segments" in result:
-                all_segments.append(result["segments"])
-
-            # Save intermediate transcript for resilience
             if keep_transcript:
                 self.cfg.transcripts_dir.mkdir(parents=True, exist_ok=True)
                 save_text_file(
                     self.cfg.transcripts_dir / f"{base}_chunk{chunk.index:03d}.txt",
                     result["text"],
                 )
+            return chunk.index, result
+
+        self._status(f"Transcribing {len(chunks)} chunks (up to 4 in parallel)...")
+        results_by_index: dict[int, TranscriptionResult] = {}
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {executor.submit(_transcribe_chunk, chunk): chunk for chunk in chunks}
+            for future in as_completed(futures):
+                idx, result = future.result()
+                results_by_index[idx] = result
+                self._status(f"Chunk {idx + 1}/{len(chunks)} done.")
+
+        all_texts: list[str] = []
+        all_raws: list[dict[str, Any]] = []
+        all_segments: list[list[TranscriptionSegment]] = []
+        for chunk in chunks:
+            result = results_by_index[chunk.index]
+            all_texts.append(result["text"])
+            all_raws.append(result["raw"])
+            if "segments" in result:
+                all_segments.append(result["segments"])
 
         # Merge results
         merged_raw: dict[str, Any] = {"chunks": all_raws}
@@ -316,13 +348,19 @@ class RecordingPipeline:
 
         paths: dict[str, Path | None] = {"wav": wav_path}
 
-        # Convert if needed
+        # Convert only when the file is not already in a compatible format.
+        # Use a dedicated temp directory so conversion output never appears next to the
+        # user's source file (important for the `svx process` command).
         to_send_path = wav_path
-        if audio_format in {"mp3", "opus"}:
+        if _needs_conversion(wav_path, audio_format):
             self._status("Converting...")
-            to_send_path = convert_audio(wav_path, audio_format)
+            if self._convert_dir is None:
+                self._convert_dir = Path(tempfile.mkdtemp(prefix="svx_convert_"))
+            to_send_path = convert_audio(wav_path, audio_format, output_dir=self._convert_dir)
             logging.info("Converted %s -> %s", wav_path, to_send_path)
             paths["converted"] = to_send_path
+        else:
+            logging.info("Skipping conversion: %s already in compatible format", wav_path.name)
 
         # Get actual audio duration from file (fall back to wall-clock duration)
         audio_duration = self._get_audio_duration(to_send_path, fallback=duration)
@@ -418,6 +456,10 @@ class RecordingPipeline:
             info = sf.info(str(audio_path))
             return info.frames / info.samplerate
         except Exception:
+            pass
+        try:
+            return get_audio_duration(audio_path)
+        except Exception:
             logging.warning(
                 "Could not read audio duration from %s, using fallback %.1fs",
                 audio_path,
@@ -456,6 +498,12 @@ class RecordingPipeline:
             shutil.rmtree(self._chunk_dir, ignore_errors=True)
             logging.info("Deleted temp chunk dir: %s", self._chunk_dir)
             self._chunk_dir = None
+
+        # Clean up conversion temp directory (may already be empty if file was moved to recordings)
+        if self._convert_dir and self._convert_dir.exists():
+            shutil.rmtree(self._convert_dir, ignore_errors=True)
+            logging.info("Deleted temp convert dir: %s", self._convert_dir)
+            self._convert_dir = None
 
         self._status("Cleanup completed.")
 

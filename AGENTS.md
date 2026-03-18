@@ -13,12 +13,12 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
 
 ### Module Structure
 
-- **svx/cli.py**: Typer CLI entrypoint; orchestration only, delegates to Config and Pipeline. During recording, runs the pipeline in a background thread while the main thread drives a Rich `Live` animated panel (level meters + elapsed time + config info). The root logger's StreamHandler is temporarily replaced with a `RichHandler` tied to the same `Console` instance to prevent cursor-tracking desync.
+- **svx/cli.py**: Typer CLI entrypoint; orchestration only, delegates to Config and Pipeline. Two main commands: `record` (mic recording) and `process` (existing audio/video file). During recording, runs the pipeline in a background thread while the main thread drives a Rich `Live` animated panel (level meters + elapsed time + config info). The root logger's StreamHandler is temporarily replaced with a `RichHandler` tied to the same `Console` instance to prevent cursor-tracking desync.
 - **svx/core/**:
   - `config.py`: Config dataclasses, TOML loading, prompt resolution (supports multiple prompts via [prompt.key] sections), logging setup. `get_user_data_dir()` / `get_user_config_dir()` for platform-standard paths. `keep_raw_audio` / `keep_compressed_audio` control WAV and compressed file retention independently.
   - `pipeline.py`: RecordingPipeline class - records (single or dual device), auto-chunks long recordings, transcribes with diarization, saves conditionally, copies to clipboard. Accepts an optional `level_monitor` (AudioLevelMonitor) and calls `push_mic`/`push_loop` from its recording callbacks.
-  - `audio.py`: WAV recording (sounddevice), ffmpeg detection/conversion to MP3/Opus
-  - `chunking.py`: Split long WAV files into overlapping chunks (`split_wav`), merge transcription segments (`merge_segments`) with crossfade deduplication, merge texts (`merge_texts`)
+  - `audio.py`: WAV recording (sounddevice), ffmpeg detection/conversion to MP3/Opus, audio duration extraction (`get_audio_duration`)
+  - `chunking.py`: Split long WAV files into overlapping chunks (`split_wav`), merge transcription segments (`merge_segments`) with crossfade deduplication, merge texts (`merge_texts`). Chunk transcription runs in parallel via `ThreadPoolExecutor`.
   - `meeting_audio.py`: Dual-device recording (`record_dual_wav`) — mic + loopback mixed to mono with configurable per-source gain. `find_loopback_device()` for device discovery.
   - `formatting.py`: Format diarized transcription segments with speaker labels and timestamps (`format_diarized_transcript`)
   - `level_monitor.py`: `AudioLevelMonitor` — framework-agnostic, push-based peak accumulator (no sounddevice streams). Pipeline feeds RMS values via `push_mic()`/`push_loop()` from its recording callbacks; consumers call `get_and_reset_peaks()` at their own cadence. Shared between CLI and GUI.
@@ -31,11 +31,11 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
   - `openai.py`: OpenAI Whisper implementation
   - `__init__.py`: Provider registry (get_provider)
 - **svx/ui/**:
-  - `qt_app.py`: PySide6 GUI (RecorderWindow/Worker) using Pipeline; dynamic buttons per prompt key; persistent checkboxes for `keep_raw_audio` / `keep_compressed_audio` via QSettings (override TOML without editing it). `AudioLevelMonitor` Qt adapter wraps `_CoreMonitor` (push mode) and emits `levels(mic, loop)` at 20 Hz via QTimer.
+  - `tk_app.py`: Pure-stdlib tkinter GUI (RecorderWindow/RecorderWorker) using Pipeline; dynamic buttons per prompt key; persistent checkboxes for `keep_raw_audio` / `keep_compressed_audio` via JSON settings file (override TOML without editing it). `AudioLevelMonitor` adapter polls `_CoreMonitor` (push mode) via `root.after()` at 20 Hz. Single-row segmented LED-style level meters (MIC always, LOOP when loopback configured).
 
 ### Execution Flow
 
-1. **Entry**: CLI parses args (--prompt, --save-all, --gui, --transcribe)
+1. **Entry**: CLI parses args. Two commands: `record` (--prompt, --save-all, --gui, --transcribe) and `process <file>` (same options minus --gui)
 2. **Config Load**: Config.load() reads config.toml (supports [prompt.default], [prompt.other], etc.); `chat_model` for text LLM; API keys in [providers.mistral] or [providers.openai]
 3. **Context Bias**: Optional `context_bias` list in `[defaults]` (up to 100 items) — passed to Mistral's transcription endpoint to improve recognition of specific vocabulary (proper nouns, technical terms). Stored in `DefaultsConfig`, read by `MistralProvider.__init__`.
 4. **Prompt Resolution**:
@@ -50,15 +50,15 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
    - `AudioLevelMonitor` (push mode) accumulates RMS values pushed by the pipeline; no extra audio streams opened
 6. **Pipeline Execution** (RecordingPipeline) — 2-step pipeline:
    - record(): WAV recording via sounddevice (or dual-device via meeting_audio if `loopback_device` configured), temp file if keep_raw_audio=false
-   - process(): Optional ffmpeg conversion, then:
-     - Auto-chunks if audio duration > `chunk_duration` (default 300s/5min): splits with `chunk_overlap` (default 30s), transcribes each chunk, merges results
+   - process(): Accepts a WAV path (from record) or any audio/video file path (from `svx process`). Non-WAV inputs are remuxed via ffmpeg stream copy to a temp WAV-compatible container before chunking. Then:
+     - Auto-chunks if audio duration > `chunk_duration` (default 300s/5min): splits with `chunk_overlap` (default 30s), transcribes each chunk **in parallel** (ThreadPoolExecutor), merges results
      - Step 1 (Transcription): audio → text via provider.transcribe() with `diarize=True` by default (speaker identification). Segments deduplicated across chunks via crossfade-at-midpoint.
      - Step 2 (Transformation): text + prompt → text via provider.chat() (text LLM, only when prompt provided)
      - When diarize=True and segments available: output formatted with speaker labels and timestamps via `format_diarized_transcript()`
    - Uses `cfg.defaults.model` for transcription, `cfg.defaults.chat_model` for transformation
    - Long recordings (> chunk_duration) auto-activate save_all (keep audio/transcripts/logs) for data protection
    - Conditional save_transcript (+ raw transcript file when transformation applied), clipboard copy
-   - clean(): Temp file + chunk temp dir cleanup
+   - clean(): Temp file + chunk temp dir cleanup. When called from `svx process`, `keep_raw=True` is forced — the user's original file is never deleted.
 7. **Transcribe Mode** (CLI only):
    - --transcribe flag: No prompt, step 1 only (dedicated transcription endpoint)
    - GUI: --transcribe ignored (warning); use "Transcribe" button instead
@@ -68,7 +68,7 @@ Python CLI/GUI for audio recording + transcription via APIs (Mistral Voxtral). M
 ## Build
 ```bash
 # Setup (creates .venv, editable install, lockfile-based)
-uv sync --extra dev --extra gui
+uv sync --extra dev
 ```
 
 ## Linting and Type Checking
@@ -91,6 +91,10 @@ svx record --transcribe
 # GUI: Launch interactive recorder
 svx record --gui
 
+# Process an existing audio/video file
+svx process recording.m4a --transcribe
+svx process meeting.mp4 --prompt "Summarize in bullet points"
+
 # Config management
 svx config init    # Create default config.toml
 svx config open    # Open config directory
@@ -99,10 +103,11 @@ svx config show    # Display current config
 
 ## Maintenance
 
-- use `uv sync --extra dev --extra gui` to install/update dependencies
-- after updating `pyproject.toml`, run `uv sync --extra dev --extra gui` to refresh the environment
+- use `uv sync --extra dev` to install/update dependencies
+- after updating `pyproject.toml`, run `uv sync --extra dev` to refresh the environment
 - When adding modules: Propagate Config instance; use RecordingPipeline for recording flows; handle temp files via keep_* flags.
 - Test temp cleanup: Verify no leftovers in default mode (keep_*=false).
+- `svx process` must never delete the user's original file: always call `pipeline.clean(..., keep_raw=True)`.
 
 
 ## Code style
