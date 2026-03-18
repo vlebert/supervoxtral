@@ -253,8 +253,8 @@ def init_user_config(force: bool = False, prompt_file: Path | None = None) -> Pa
         "# Language hint (may help the provider)\n"
         'language = "fr"\n\n'
         "# Context bias: up to 100 words/phrases to help recognize specific vocabulary\n"
-        "# (proper nouns, technical terms, brand names, etc.)\n"
-        '# context_bias = ["SuperVoxtral", "Mistral AI", "Voxtral"]\n'
+        "# (proper nouns, technical terms, brand names, etc. without spaces)\n"
+        '# context_bias = ["SuperVoxtral", "Mistral", "AI", "Voxtral"]\n'
         "context_bias = []\n\n"
         "# Speaker diarization (identify speakers in transcription)\n"
         "diarize = true\n\n"
